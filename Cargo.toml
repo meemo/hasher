@@ -6,6 +6,6 @@ edition = "2021"
 author = "Meemo <meemo4556@gmail.com>"
 readme = "README.md"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+sha2 = "0.10.6"
+data-encoding = "2.3.3"
