@@ -1,4 +1,10 @@
+# IDE config directory
 .vscode/
 
+# Rust build output
 debug/
 target/
+
+# Test files
+zero
+*.tar.gz
