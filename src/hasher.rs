@@ -129,6 +129,7 @@ pub fn hash_file_threaded<'a>(
     info!("Successfully hashed file in {:.2?}", start_time.elapsed());
     info!("File name: {}", file_path.display());
     info!("File size: {} bytes", file_size);
+    info!("crc32: {}", hex::encode(&final_hashes[0].1));
 
     for (hash_name, hash_mutex) in hashes.drain(..) {
         let hash_vec = hash_mutex.lock().unwrap().finalize_reset().to_vec();

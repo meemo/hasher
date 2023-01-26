@@ -19,7 +19,7 @@ use sha2::{Sha224, Sha256, Sha384, Sha512};
 pub struct HasherConfig {
     /// The path to be hashed
     #[arg(short, long, default_value_t = String::from("."))]
-    #[serde(rename = "config_file")]
+    #[serde(rename = "path")]
     pub path: String,
 
     /// The location of the config file
@@ -29,7 +29,7 @@ pub struct HasherConfig {
 
     /// Maximum number of subdirectories to go down when recursively hashing
     #[arg(long, default_value_t = 16)]
-    #[serde(rename = "config_file")]
+    #[serde(rename = "max_depth")]
     pub max_depth: usize,
 
     /// Whether to calculate a CRC32 hash [default: true]
