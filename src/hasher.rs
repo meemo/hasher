@@ -1,13 +1,24 @@
+use std::cmp::min;
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
-use std::cmp::min;
+use std::time::Instant;
 
 use crc32fast;
-use digest::DynDigest;
+use hex;
+use log::{info, warn};
+use walkdir::WalkDir;
+
+use crate::configuration::{HasherConfig, get_hashes};
+
+/**
+ * hasher.rs
+ *
+ * Core functions for hashing.
+ */
 
 // Read 1 GiB of the file at a time when dealing with large files
 const CHUNK_SIZE: usize = 1024 * 1024 * 1024;
@@ -29,18 +40,30 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
     }
 }
 
+impl From<walkdir::Error> for Error {
+    fn from(_value: walkdir::Error) -> Self {
+        Error::IO
+    }
+}
+
 // Where the magic happens
 pub fn hash_file_threaded<'a>(
-    file_path: &'a PathBuf,
-    hashes: &'a mut Vec<(&str, Arc<Mutex<dyn DynDigest + Send>>)>,
-    hash_crc32: bool,
-) -> Result<Vec<(&'a str, Vec<u8>)>, Error> {
+    file_path: &'a Path,
+    config: &HasherConfig,
+) -> Result<(usize, Vec<(&'a str, Vec<u8>)>), Error> {
+    info!("Beginning to hash file: {}", file_path.display());
+
+    let start_time = Instant::now();
+
     let input_file = File::open(file_path)?;
     let file_size: usize = input_file.metadata()?.len() as usize;
     let mut file_reader = BufReader::new(input_file);
 
     let buffer_size: usize = min(file_size, CHUNK_SIZE);
     let buffer = Arc::new(RwLock::new(vec![0; buffer_size]));
+
+    let hashes_arc = get_hashes(config);
+    let mut hashes = hashes_arc.lock().unwrap();
 
     let crc32_hasher = Arc::new(Mutex::new(crc32fast::Hasher::new()));
 
@@ -50,7 +73,9 @@ pub fn hash_file_threaded<'a>(
 
         let bytes_read = file_reader.read(buffer.write()?.as_mut())?;
 
-        if bytes_read == 0 { break; }
+        if bytes_read == 0 {
+            break;
+        }
 
         // Ensure only the amount of data that was read will be hashed
         if bytes_read < buffer_size {
@@ -69,7 +94,7 @@ pub fn hash_file_threaded<'a>(
         }
 
         // Start thread for CRC32 (if applicable)
-        if hash_crc32 {
+        if config.crc32 {
             let buffer_clone = buffer.clone();
             let hash_clone = crc32_hasher.clone();
 
@@ -88,13 +113,58 @@ pub fn hash_file_threaded<'a>(
     let mut final_hashes: Vec<(&str, Vec<u8>)> = Vec::new();
 
     // Get the result of each hash in a consistent format
-    if hash_crc32 {
-        final_hashes.push(("crc32", crc32_hasher.lock().unwrap().clone().finalize().to_be_bytes().to_vec()));
+    if config.crc32 {
+        final_hashes.push((
+            "crc32",
+            crc32_hasher
+                .lock()
+                .unwrap()
+                .clone()
+                .finalize()
+                .to_be_bytes()
+                .to_vec(),
+        ));
     }
+
+    info!("Successfully hashed file in {:.2?}", start_time.elapsed());
+    info!("File name: {}", file_path.display());
+    info!("File size: {} bytes", file_size);
 
     for (hash_name, hash_mutex) in hashes.drain(..) {
-        final_hashes.push((hash_name, hash_mutex.lock().unwrap().finalize_reset().to_vec()));
+        let hash_vec = hash_mutex.lock().unwrap().finalize_reset().to_vec();
+        info!("{}: {}", hash_name, hex::encode(&hash_vec));
+
+        final_hashes.push((hash_name, hash_vec));
     }
 
-    Ok(final_hashes)
+    Ok((file_size, final_hashes))
+}
+
+// Uses hash_file_threaded on every file in a directory up to the given depth
+pub fn hash_dir(path_to_hash: &Path, config: &HasherConfig) -> Result<(), Error> {
+    info!(
+        "Hashing path: {} up to {} levels of depth.",
+        path_to_hash.display(),
+        config.max_depth
+    );
+
+    for entry in WalkDir::new(path_to_hash)
+        .min_depth(1)
+        .max_depth(config.max_depth)
+        .follow_links(config.follow_symlinks)
+        // Only hash files that are accessible
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.path().is_dir() {
+            if let Ok(_) =  hash_file_threaded(entry.path(), config) {
+            } else {
+                warn!("Failed to hash file at path {}", entry.path().display());
+            }
+        }
+    }
+
+    info!("Successfully hashed path: {}", path_to_hash.display());
+
+    Ok(())
 }
