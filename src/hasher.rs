@@ -1,6 +1,6 @@
 use std::cmp::min;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{self, BufReader, Read};
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -12,7 +12,7 @@ use hex;
 use log::{info, warn};
 use walkdir::WalkDir;
 
-use crate::configuration::{HasherConfig, get_hashes};
+use crate::configuration::{get_hashes, HasherConfig};
 
 /**
  * hasher.rs
@@ -23,6 +23,7 @@ use crate::configuration::{HasherConfig, get_hashes};
 // Read 1 GiB of the file at a time when dealing with large files
 const CHUNK_SIZE: usize = 1024 * 1024 * 1024;
 
+#[derive(Debug)]
 pub enum Error {
     IO,
     Poison,
@@ -144,23 +145,38 @@ pub fn hash_file_threaded<'a>(
 // Uses hash_file_threaded on every file in a directory up to the given depth
 pub fn hash_dir(path_to_hash: &Path, config: &HasherConfig) -> Result<(), Error> {
     info!(
-        "Hashing path: {} up to {} levels of depth.",
+        "Hashing path: {} up to {} level(s) of depth.",
         path_to_hash.display(),
         config.max_depth
     );
 
     for entry in WalkDir::new(path_to_hash)
-        .min_depth(1)
+        .min_depth(0)
         .max_depth(config.max_depth)
         .follow_links(config.follow_symlinks)
-        // Only hash files that are accessible
-        .into_iter()
-        .filter_map(|e| e.ok())
     {
-        if !entry.path().is_dir() {
-            if let Ok(_) =  hash_file_threaded(entry.path(), config) {
-            } else {
-                warn!("Failed to hash file at path {}", entry.path().display());
+        match entry {
+            Ok(entry_ok) => {
+                if !entry_ok.path().is_dir() {
+                    if let Ok(_) = hash_file_threaded(entry_ok.path(), config) {
+                    } else {
+                        warn!("Failed to hash file at path {}, skipping", entry_ok.path().display());
+                    }
+                }
+            }
+            Err(err) => {
+                let path = err.path().unwrap_or(Path::new("")).display();
+                warn!("Failed to access entry at {}", path);
+                if let Some(inner) = err.io_error() {
+                    match inner.kind() {
+                        io::ErrorKind::PermissionDenied => {
+                            warn!("Missing permission to read entry: {}, skipping", inner);
+                        }
+                        _ => {
+                            warn!("Unexpected error at entry: {}, skipping", inner);
+                        }
+                    }
+                }
             }
         }
     }

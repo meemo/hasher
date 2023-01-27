@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex};
 
-use serde_derive::{Serialize, Deserialize};
-use clap::Parser;
 use blake2::Blake2b512;
+use clap::Parser;
 use digest::{Digest, DynDigest};
 use md5::Md5;
+use serde_derive::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
 
@@ -94,36 +94,58 @@ pub fn get_config() -> HasherConfig {
 }
 
 pub fn get_hashes<'a>(
-    config: &HasherConfig
+    config: &HasherConfig,
 ) -> Arc<Mutex<Vec<(&'a str, Arc<Mutex<dyn DynDigest + Send>>)>>> {
-    let hashes: Arc<Mutex<Vec<(&str, Arc<Mutex<dyn DynDigest + Send>>)>>> = Arc::new(Mutex::new(Vec::new()));
+    let hashes: Arc<Mutex<Vec<(&str, Arc<Mutex<dyn DynDigest + Send>>)>>> =
+        Arc::new(Mutex::new(Vec::new()));
 
     if config.md5 {
-        hashes.lock().unwrap().push(("md5", Arc::new(Mutex::new(Md5::new()))));
+        hashes
+            .lock()
+            .unwrap()
+            .push(("md5", Arc::new(Mutex::new(Md5::new()))));
     }
 
     if config.sha1 {
-        hashes.lock().unwrap().push(("sha1", Arc::new(Mutex::new(Sha1::new()))));
+        hashes
+            .lock()
+            .unwrap()
+            .push(("sha1", Arc::new(Mutex::new(Sha1::new()))));
     }
 
     if config.sha224 {
-        hashes.lock().unwrap().push(("sha224", Arc::new(Mutex::new(Sha224::new()))));
+        hashes
+            .lock()
+            .unwrap()
+            .push(("sha224", Arc::new(Mutex::new(Sha224::new()))));
     }
 
     if config.sha256 {
-        hashes.lock().unwrap().push(("sha256", Arc::new(Mutex::new(Sha256::new()))));
+        hashes
+            .lock()
+            .unwrap()
+            .push(("sha256", Arc::new(Mutex::new(Sha256::new()))));
     }
 
     if config.sha384 {
-        hashes.lock().unwrap().push(("sha384", Arc::new(Mutex::new(Sha384::new()))));
+        hashes
+            .lock()
+            .unwrap()
+            .push(("sha384", Arc::new(Mutex::new(Sha384::new()))));
     }
 
     if config.sha512 {
-        hashes.lock().unwrap().push(("sha512", Arc::new(Mutex::new(Sha512::new()))));
+        hashes
+            .lock()
+            .unwrap()
+            .push(("sha512", Arc::new(Mutex::new(Sha512::new()))));
     }
 
     if config.blake2b512 {
-        hashes.lock().unwrap().push(("blake2b512", Arc::new(Mutex::new(Blake2b512::new()))));
+        hashes
+            .lock()
+            .unwrap()
+            .push(("blake2b512", Arc::new(Mutex::new(Blake2b512::new()))));
     }
 
     hashes

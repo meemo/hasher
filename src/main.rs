@@ -1,27 +1,26 @@
 use std::path::PathBuf;
 use std::time::Instant;
+use std::io::Write;
+use chrono::offset::Utc;
 
-use log::{error, info};
+use log::info;
 
-mod hasher;
 mod configuration;
+mod hasher;
 
-use hasher::hash_dir;
 use configuration::get_config;
+use hasher::hash_dir;
 
 fn main() {
-    env_logger::init();
+    env_logger::builder().format(|buf, record| {
+        writeln!(buf, "[{}][{}] {}", Utc::now().timestamp(), record.level(), record.args())
+    }).init();
 
     let start_time = Instant::now();
-
     let config = get_config();
-
     let input_path = PathBuf::from(&config.path);
 
-    if let Ok(_) = hash_dir(input_path.as_path(), &config) {
-    } else {
-        error!("Failure while hashing directory!");
-    }
+    hash_dir(input_path.as_path(), &config).expect("Failure while hashing directory!");
 
     info!("Execution took: {:.2?}.", start_time.elapsed());
 }
