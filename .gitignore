@@ -5,6 +5,10 @@
 debug/
 target/
 
+# Hash outputs
+hashes/
+*.db*
+
 # Test files
 zero
 *.tar.gz

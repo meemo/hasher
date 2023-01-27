@@ -19,62 +19,54 @@ use sha2::{Sha224, Sha256, Sha384, Sha512};
 pub struct HasherConfig {
     /// The path to be hashed
     #[arg(short, long, default_value_t = String::from("."))]
-    #[serde(rename = "path")]
-    pub path: String,
+    pub input_path: String,
+
+    /// The path to output hashes, {sha256}.json
+    #[arg(short, long, default_value_t = String::from("./hashes/"))]
+    pub output_path: String,
 
     /// The location of the config file
     #[arg(short, long, default_value_t = String::from("config.toml"))]
-    #[serde(rename = "config_file")]
     pub config_file: String,
 
-    /// Maximum number of subdirectories to go down when recursively hashing
+    /// Maximum number of subdirectories to descend when recursing directories
     #[arg(long, default_value_t = 16)]
-    #[serde(rename = "max_depth")]
     pub max_depth: usize,
 
     /// Whether to calculate a CRC32 hash [default: true]
     #[arg(long, default_value_t = true)]
-    #[serde(rename = "crc32")]
     pub crc32: bool,
 
     /// MD5 hash [default: true]
     #[arg(long, default_value_t = true)]
-    #[serde(rename = "md5")]
     pub md5: bool,
 
     /// SHA-1 [default: true]
     #[arg(long, default_value_t = true)]
-    #[serde(rename = "sha1")]
     pub sha1: bool,
 
     /// SHA-224 [default: false]
     #[arg(long, default_value_t = false)]
-    #[serde(rename = "sha224")]
     pub sha224: bool,
 
     /// SHA-256 [default: false]
     #[arg(long, default_value_t = false)]
-    #[serde(rename = "sha256")]
     pub sha256: bool,
 
     /// SHA-384 [default: false]
     #[arg(long, default_value_t = false)]
-    #[serde(rename = "sha384")]
     pub sha384: bool,
 
     /// SHA-512 [default: false]
     #[arg(long, default_value_t = false)]
-    #[serde(rename = "sha512")]
     pub sha512: bool,
 
     /// Blake2b512 [default: false]
     #[arg(long, default_value_t = false)]
-    #[serde(rename = "blake2b512")]
     pub blake2b512: bool,
 
     /// Whether or not to follow symlinks [default: true]
     #[arg(long, default_value_t = true)]
-    #[serde(rename = "follow_symlinks")]
     pub follow_symlinks: bool,
 }
 

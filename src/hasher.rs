@@ -1,6 +1,6 @@
 use std::cmp::min;
-use std::fs::File;
-use std::io::{self, BufReader, Read};
+use std::fs::{create_dir_all, File};
+use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -10,6 +10,8 @@ use std::time::Instant;
 use crc32fast;
 use hex;
 use log::{info, warn};
+use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::configuration::{get_hashes, HasherConfig};
@@ -142,6 +144,39 @@ pub fn hash_file_threaded<'a>(
     Ok((file_size, final_hashes))
 }
 
+fn write_hashes_json(
+    config: &HasherConfig,
+    file_path: &Path,
+    file_size: usize,
+    hashes: Vec<(&str, Vec<u8>)>,
+) {
+    let mut map = Map::new();
+
+    create_dir_all(config.output_path.clone()).expect("Failed to create output directory.");
+
+    map.insert(
+        "file_path".to_string(),
+        Value::from(file_path.display().to_string()),
+    );
+    map.insert("file_size".to_string(), Value::from(file_size));
+
+    for (hash_name, hash_data) in hashes.iter() {
+        map.insert(hash_name.to_string(), Value::from(hex::encode(hash_data)));
+    }
+
+    let json_obj = Value::Object(map).to_string();
+
+    let mut sha256_hasher = Sha256::new();
+    sha256_hasher.update(json_obj.as_bytes());
+    let sha256_hash: String = hex::encode(sha256_hasher.finalize());
+
+    let output_path = format!("{}{}.json", config.output_path, sha256_hash);
+    info!("Writing output hash file to {}", output_path);
+    let mut output_file = File::create(output_path).expect("Failed to open file!");
+
+    write!(output_file, "{}\n", json_obj).expect("Failed to write to file.");
+}
+
 // Uses hash_file_threaded on every file in a directory up to the given depth
 pub fn hash_dir(path_to_hash: &Path, config: &HasherConfig) -> Result<(), Error> {
     info!(
@@ -158,9 +193,13 @@ pub fn hash_dir(path_to_hash: &Path, config: &HasherConfig) -> Result<(), Error>
         match entry {
             Ok(entry_ok) => {
                 if !entry_ok.path().is_dir() {
-                    if let Ok(_) = hash_file_threaded(entry_ok.path(), config) {
+                    if let Ok(hashes) = hash_file_threaded(entry_ok.path(), config) {
+                        write_hashes_json(config, entry_ok.path(), hashes.0, hashes.1);
                     } else {
-                        warn!("Failed to hash file at path {}, skipping", entry_ok.path().display());
+                        warn!(
+                            "Failed to hash file at path {}, skipping",
+                            entry_ok.path().display()
+                        );
                     }
                 }
             }
