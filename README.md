@@ -10,8 +10,7 @@ Currently this will spit out a bunch of JSON files at the designated directory, 
 ## Building
 
 hasher requires a fairly modern version of Rust, preferably the latest. Install it using the instructions located
-[here](https://www.rust-lang.org/tools/install) for the latest stable release. Unstable may still work in
-theory, however I haven't tested it.
+[here](https://www.rust-lang.org/tools/install) for the latest stable release.
 
 To build, run the following at the root of the repository:
 
