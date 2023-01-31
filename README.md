@@ -2,7 +2,10 @@
 
 *I'm amazing at naming programs.*
 
-hasher is a program that will be able compute a number of different hashes while only reading a file once.
+hasher is a program that will be able compute a number of different hashes while only reading a file once. A buffer is
+read and then threads are spawned for each selected hash, resulting in huge speed gains over hashing sequentially.
+
+Currently this will spit out a bunch of JSON files at the designated directory, however this will change soon.
 
 ## Building
 
@@ -24,6 +27,7 @@ not, I'm not your dad).
 ### General
 
 ```
+$ ./hasher -h
 A parallel file hashing program.
 
 Usage: hasher [OPTIONS]
@@ -50,15 +54,35 @@ No arguments are required to be passed, however you most likely want to change t
 
 Note: Config files are not implemented.
 
-
 ### Logging
 
 Logging is controlled through the `RUST_LOG` environment variable. Run the program like `RUST_LOG=info ./hasher` in
 order to see the most information about what the program is doing.
 
+## TODO
+
+- Implement config files
+- Add outputting hashes to SQL database (instead of JSON files)
+- Optimize hashing, mainly in evening out file IO by reading another buffer while hashing (helps on spinning rust).
+- Make logging controllable through args instead of just env variables
+
 ## Hashes
 
-The following hashes are not implemented however then can be in the future:
+### Implemented
+
+- CRC32
+- MD5
+- SHA-1
+- SHA-2
+  - SHA-224
+  - SHA-256
+  - SHA-384
+  - SHA-512
+- Blake2b512
+
+### NOT Implemented
+
+The following hashes are not implemented however then may be in the future:
 
 - The rest of the BLAKE families
 - SHA-3
