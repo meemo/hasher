@@ -1,7 +1,5 @@
 # hasher
 
-*I'm amazing at naming programs.*
-
 hasher is a program that will be able compute a number of different hashes while only reading a file once. A buffer is
 read and then threads are spawned for each selected hash, resulting in huge speed gains over hashing sequentially.
 
@@ -32,26 +30,34 @@ A parallel file hashing program.
 Usage: hasher [OPTIONS]
 
 Options:
-  -i, --input-path <INPUT_PATH>    The path to be hashed [default: .]
-  -o, --output-path <OUTPUT_PATH>  The path to output hashes, {sha256}.json [default: ./hashes/]
-  -c, --config-file <CONFIG_FILE>  The location of the config file [default: config.toml]
-      --max-depth <MAX_DEPTH>      Maximum number of subdirectories to descend when recursing directories [default: 16]
-      --crc32                      Whether to calculate a CRC32 hash [default: true]
-      --md5                        MD5 hash [default: true]
-      --sha1                       SHA-1 [default: true]
-      --sha224                     SHA-224 [default: false]
-      --sha256                     SHA-256 [default: false]
-      --sha384                     SHA-384 [default: false]
-      --sha512                     SHA-512 [default: false]
-      --blake2b512                 Blake2b512 [default: false]
-      --follow-symlinks            Whether or not to follow symlinks [default: true]
-  -h, --help                       Print help
-  -V, --version                    Print version
+  -i, --input-path <INPUT_PATH>
+          The path to be hashed [default: .]
+  -j, --json-output-path <JSON_OUTPUT_PATH>
+          The path to output hashes, {path}/{sha256}.json [default: ./hashes]
+  -c, --config-file <CONFIG_FILE>
+          The location of the config file [default: ./config.toml]
+      --max-depth <MAX_DEPTH>
+          Maximum number of subdirectories to descend when recursing directories [default: 16]
+      --no-follow-symlinks
+          DON'T follow symlinks
+      --breadth-first
+          Hash directories breadth first instead of depth first
+      --write-config-template
+          Writes the config file template to ./config.toml.template and exits
+  -h, --help
+          Print help
+  -V, --version
+          Print version
 ```
 
-No arguments are required to be passed, however you most likely want to change the input path at least.
+### Config File
 
-Note: Config files are not implemented.
+In the root of the repository there is a file named `config.toml.template`. This file should be copied to `config.toml`
+and the values within should be modified to suit your needs. Altering anything but the values in this template may cause
+unintended consequences.
+
+`config.toml.template` can be created at any time by using the `--write-config-template` argument, which writes the file
+in the current directory.
 
 ### Logging
 
@@ -60,45 +66,52 @@ order to see the most information about what the program is doing.
 
 ## TODO
 
-- Implement config files
-- Add outputting hashes to SQL database (instead of JSON files)
+- Add outputting hashes to SQL database (instead of JSON files).
+  - --json-out and --sql-out args
 - Optimize hashing, mainly in evening out file IO by reading another buffer while hashing (helps on spinning rust).
-- Make logging controllable through args instead of just env variables
+- Make logging controllable through args (e.g. -v) instead of the `RUST_LOG` env variable.
+- Add stdin for hashing (treated as 1 file)
+  - --input-path becomes the path that will be sent to the DB
+- Add option to skip number of files before resuming hashing (--skip-files <NUMBER>)
 
 ## Hashes
 
 ### Implemented
 
 - CRC32
+- MD2
+- MD4
 - MD5
 - SHA-1
 - SHA-2
-  - SHA-224
-  - SHA-256
-  - SHA-384
-  - SHA-512
-- Blake2b512
-
-### NOT Implemented
-
-The following hashes are not implemented however then may be in the future:
-
-- The rest of the BLAKE families
+  - SHA-224 through SHA-512
 - SHA-3
+  - SHA3-224 through SHA3-512
+- BLAKE2
+  - Blake2s256, Blake2b512
+- BelT
 - Whirpool
 - Tiger
 - Streebog (GOST R 34.11-2012)
-- MD2
-- MD4
-- BelT
+- RIPEMD
+- FSB
 - SM3
 - GOST R 34.11-94
 - Grøstl (Groestl)
-- FSB
-- RIPEMD
-- KangarooTwelve
 - SHABAL
-- Other CRC variants (these don't implement digest so they will be difficult to implement)
+
+### Skipped
+
+The following hashes were not implemented
+
+- SHA-3
+  - SHAKE128/SHAKE256
+    - They are XOF, need special handling
+- BLAKE3
+  - XOF
+- KangarooTwelve
+  - XOF
+- Other CRC variants (these don't implement digest so they aren't easily integrated)
   - Adler CRC32 (aka Adler32)
     - In most cases this should be the same as CRC32, however it has the possibility of being different.
   - CRC16
