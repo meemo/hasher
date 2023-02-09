@@ -132,6 +132,67 @@ fn hash_buffer_threaded<'a>(
     Ok(threads)
 }
 
+pub fn hash_stdin<'a>(
+    config: &HasherHashes,
+    file_path: &'a str,
+) -> Result<(usize, Vec<(&'a str, Vec<u8>)>), Error> {
+    info!("Hashing from stdin.");
+    let start_time = Instant::now();
+
+    let hashes_arc = get_hashes(config);
+    let mut hashes = arclock!(hashes_arc);
+    let crc32_hasher = Arc::new(Mutex::new(crc32fast::Hasher::new()));
+
+    let mut raw_buffer: Vec<u8> = Vec::new();
+    std::io::stdin().read_to_end(&mut raw_buffer)?;
+
+    let file_size = raw_buffer.len();
+    let buffer = Arc::new(RwLock::new(raw_buffer));
+
+    if file_size < SEQUENTIAL_SIZE {
+        hash_buffer_sequential(&buffer, &mut hashes, config.crc32, &crc32_hasher)?;
+    } else {
+        let threads = hash_buffer_threaded(&buffer, &mut hashes, config.crc32, &crc32_hasher)?;
+
+        // Wait for all threads to finish processing
+        for handle in threads.into_iter() {
+            handle.join().unwrap()?;
+        }
+    }
+
+    let mut final_hashes: Vec<(&str, Vec<u8>)> = Vec::new();
+
+    info!(
+        "Successfully hashed file from stdin in {:.2?}",
+        start_time.elapsed()
+    );
+    info!("File name (in output): {}", file_path);
+    info!("File size: {} bytes", file_size);
+
+    // Get the result of each hash in a consistent format
+    if config.crc32 {
+        final_hashes.push((
+            "crc32",
+            arclock!(crc32_hasher)
+                .clone()
+                .finalize()
+                .to_be_bytes()
+                .to_vec(),
+        ));
+        info!("crc32: {}", hex::encode(&final_hashes[0].1));
+    }
+
+    for (hash_name, hash_mutex) in hashes.drain(..) {
+        let hash_vec = arclock!(hash_mutex).finalize_reset().to_vec();
+
+        info!("{}: {}", hash_name, hex::encode(&hash_vec));
+
+        final_hashes.push((hash_name, hash_vec));
+    }
+
+    Ok((file_size, final_hashes))
+}
+
 pub fn hash_file<'a>(
     file_path: &'a Path,
     config: &HasherHashes,
@@ -246,7 +307,10 @@ pub fn hash_dir(
     path_to_hash: &Path,
     config: &HasherArgs,
     config_hashes: &HasherHashes,
+    skip_files: usize,
 ) -> Result<(), Error> {
+    let mut file_count: usize = 0;
+
     info!(
         "Hashing path: {} up to {} level(s) of depth.",
         path_to_hash.display(),
@@ -260,6 +324,18 @@ pub fn hash_dir(
         .contents_first(!config.breadth_first)
         .sort_by_file_name()
     {
+        // Functionality for skipping a given number of files in the args
+        file_count += 1;
+        if file_count <= skip_files {
+            info!(
+                "Skipping ({}/{}) file {}",
+                file_count,
+                skip_files,
+                entry?.path().display()
+            );
+            continue;
+        }
+
         match entry {
             Ok(entry_ok) => {
                 if !entry_ok.path().is_dir() {

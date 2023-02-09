@@ -40,8 +40,12 @@ Options:
           The path to output hashes, {path}/{sha256}.json [default: ./hashes]
   -c, --config-file <CONFIG_FILE>
           The location of the config file [default: ./config.toml]
+      --stdin
+          Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output. Note: input must be smaller than the avaliable RAM
       --max-depth <MAX_DEPTH>
           Maximum number of subdirectories to descend when recursing directories [default: 16]
+      --skip-files <SKIP_FILES>
+          Number of files (inclusive) to skip before beginning to hash a directory [default: 0]
       --no-follow-symlinks
           DON'T follow symlinks
       --breadth-first
@@ -62,10 +66,6 @@ unintended consequences.
 
 - Add outputting hashes to SQL database (instead of JSON files).
   - --json-out and --sql-out args
-- Optimize hashing, mainly in evening out file IO by reading another buffer while hashing (helps on spinning rust).
-- Add stdin for hashing (treated as 1 file)
-  - --input-path becomes the path that will be sent to the DB
-- Add option to skip number of files before resuming hashing (--skip-files <NUMBER>)
 
 ## Hashes
 

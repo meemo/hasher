@@ -29,10 +29,28 @@ fn main() {
     let config = configuration::get_config(&config_args);
     let input_path = PathBuf::from(&config_args.input_path);
 
-    if let Ok(_) = hasher::hash_dir(input_path.as_path(), &config_args, &config) {
-        info!("Execution took: {:.2?}.", start_time.elapsed());
+    if config_args.stdin {
+        // Hash the data provided in stdin
+        if let Ok(_) = hasher::hash_stdin(&config, &config_args.input_path) {
+            // do nothing
+        } else {
+            error!("Failure while hashing from stdin!");
+            exit(1);
+        }
     } else {
-        error!("Failure while hashing directory {}", input_path.display());
-        exit(1);
+        // Hash the file at the given path
+        if let Ok(_) = hasher::hash_dir(
+            input_path.as_path(),
+            &config_args,
+            &config,
+            config_args.skip_files,
+        ) {
+            // do nothing
+        } else {
+            error!("Failure while hashing directory {}", input_path.display());
+            exit(1);
+        }
     }
+
+    info!("Execution took: {:.2?}.", start_time.elapsed());
 }

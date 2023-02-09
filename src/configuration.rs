@@ -49,9 +49,18 @@ pub struct HasherArgs {
     #[arg(short, long, default_value_t = String::from("./config.toml"))]
     pub config_file: String,
 
+    /// Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output.
+    /// Note: input must be smaller than the avaliable RAM.
+    #[arg(long, default_value_t = false)]
+    pub stdin: bool,
+
     /// Maximum number of subdirectories to descend when recursing directories
     #[arg(long, default_value_t = 16)]
     pub max_depth: usize,
+
+    /// Number of files (inclusive) to skip before beginning to hash a directory.
+    #[arg(long, default_value_t = 0)]
+    pub skip_files: usize,
 
     /// DON'T follow symlinks
     #[arg(long, default_value_t = false)]
