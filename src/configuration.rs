@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::{
     fs,
     sync::{Arc, Mutex},
@@ -7,6 +6,7 @@ use std::{
 use belt_hash::BeltHash;
 use blake2::{Blake2b512, Blake2s256};
 use clap::Parser;
+use clap_verbosity_flag::{Verbosity, WarnLevel};
 use digest::{Digest, DynDigest};
 use fsb::{Fsb160, Fsb224, Fsb256, Fsb384, Fsb512};
 use gost94::{Gost94CryptoPro, Gost94Test, Gost94UA, Gost94s2015};
@@ -31,12 +31,15 @@ use whirlpool::Whirlpool;
  * Configuration of the program.
  */
 
-#[derive(Deserialize, Parser, Debug)]
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct HasherArgs {
     /// The path to be hashed
     #[arg(short, long, default_value_t = String::from("."))]
     pub input_path: String,
+
+    #[clap(flatten)]
+    pub verbose: Verbosity<WarnLevel>,
 
     /// The path to output hashes, {path}/{sha256}.json
     #[arg(short, long, default_value_t = String::from("./hashes"))]
@@ -57,13 +60,9 @@ pub struct HasherArgs {
     /// Hash directories breadth first instead of depth first
     #[arg(long, default_value_t = false)]
     pub breadth_first: bool,
-
-    /// Writes the config file template to ./config.toml.template and exits.
-    #[arg(long, default_value_t = false)]
-    pub write_config_template: bool,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 pub struct HasherHashes {
     pub crc32: bool,
     md2: bool,
@@ -115,15 +114,10 @@ pub struct HasherHashes {
     shabal512: bool,
 }
 
-pub fn get_args() -> HasherArgs {
-    HasherArgs::parse()
-}
-
 pub fn get_config(config_args: &HasherArgs) -> HasherHashes {
     if let Ok(config_str) = fs::read_to_string(&config_args.config_file) {
         let config: HasherHashes =
             toml::from_str(&config_str).expect("Fatal error when reading config file contents!");
-
         return config;
     } else {
         panic!("Failed to read config file at {}!", config_args.config_file);
@@ -196,62 +190,4 @@ pub fn get_hashes<'a>(
     if config_hashes.shabal512 { addhash!(hashes, "shabal512", Shabal512::new()); }
 
     hashes
-}
-
-pub fn write_config_template() {
-    let mut output_file =
-        fs::File::create("./config.toml.template").expect("Failed to create template file!");
-    write!(
-        &mut output_file,
-        "crc32 = true
-md2 = false
-md4 = false
-md5 = true
-sha1 = true
-sha224 = false
-sha256 = false
-sha384 = false
-sha512 = false
-sha3_224 = false
-sha3_256 = false
-sha3_384 = false
-sha3_512 = false
-keccak224 = false
-keccak256 = false
-keccak384 = false
-keccak512 = false
-blake2s256 = false
-blake2b512 = false
-belt_hash = false
-whirlpool = false
-tiger = false
-tiger2 = false
-streebog256 = false
-streebog512 = false
-ripemd128 = false
-ripemd160 = false
-ripemd256 = false
-ripemd320 = false
-fsb160 = false
-fsb224 = false
-fsb256 = false
-fsb384 = false
-fsb512 = false
-sm3 = false
-gost94_cryptopro = false
-gost94_test = false
-gost94_ua = false
-gost94_s2015 = false
-groestl224 = false
-groestl256 = false
-grostl384 = false
-groestl512 = false
-shabal192 = false
-shabal224 = false
-shabal256 = false
-shabal384 = false
-shabal512 = false
-"
-    )
-    .expect("Failed to write contents to ./config.toml.template!");
 }

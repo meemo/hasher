@@ -24,7 +24,7 @@ not, I'm not your dad).
 ### General
 
 ```
-$ ./hasher -h
+$ ./hasher --help
 A parallel file hashing program.
 
 Usage: hasher [OPTIONS]
@@ -32,6 +32,10 @@ Usage: hasher [OPTIONS]
 Options:
   -i, --input-path <INPUT_PATH>
           The path to be hashed [default: .]
+  -v, --verbose...
+          More output per occurrence
+  -q, --quiet...
+          Less output per occurrence
   -j, --json-output-path <JSON_OUTPUT_PATH>
           The path to output hashes, {path}/{sha256}.json [default: ./hashes]
   -c, --config-file <CONFIG_FILE>
@@ -42,8 +46,6 @@ Options:
           DON'T follow symlinks
       --breadth-first
           Hash directories breadth first instead of depth first
-      --write-config-template
-          Writes the config file template to ./config.toml.template and exits
   -h, --help
           Print help
   -V, --version
@@ -56,20 +58,11 @@ In the root of the repository there is a file named `config.toml.template`. This
 and the values within should be modified to suit your needs. Altering anything but the values in this template may cause
 unintended consequences.
 
-`config.toml.template` can be created at any time by using the `--write-config-template` argument, which writes the file
-in the current directory.
-
-### Logging
-
-Logging is controlled through the `RUST_LOG` environment variable. Run the program like `RUST_LOG=info ./hasher` in
-order to see the most information about what the program is doing.
-
 ## TODO
 
 - Add outputting hashes to SQL database (instead of JSON files).
   - --json-out and --sql-out args
 - Optimize hashing, mainly in evening out file IO by reading another buffer while hashing (helps on spinning rust).
-- Make logging controllable through args (e.g. -v) instead of the `RUST_LOG` env variable.
 - Add stdin for hashing (treated as 1 file)
   - --input-path becomes the path that will be sent to the DB
 - Add option to skip number of files before resuming hashing (--skip-files <NUMBER>)

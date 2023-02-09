@@ -1,19 +1,18 @@
 use chrono::offset::Utc;
-use std::path::PathBuf;
+use std::io::Write;
 use std::time::Instant;
-use std::{io::Write, process::exit};
+use std::{path::PathBuf, process::exit};
 
-use log::info;
+use clap::Parser;
+use log::{error, info};
 
 mod configuration;
 mod hasher;
 
-use configuration::get_args;
-use hasher::hash_dir;
-
-use crate::configuration::{get_config, write_config_template};
-
 fn main() {
+    let start_time = Instant::now();
+    let config_args = configuration::HasherArgs::parse();
+
     env_logger::builder()
         .format(|buf, record| {
             writeln!(
@@ -24,21 +23,16 @@ fn main() {
                 record.args()
             )
         })
+        .filter_level(config_args.verbose.log_level_filter())
         .init();
 
-    let start_time = Instant::now();
-    let config_args = get_args();
-
-    if config_args.write_config_template {
-        write_config_template();
-        exit(0);
-    }
-
-    let config = get_config(&config_args);
+    let config = configuration::get_config(&config_args);
     let input_path = PathBuf::from(&config_args.input_path);
 
-    hash_dir(input_path.as_path(), &config_args, &config)
-        .expect("Failure while hashing directory!");
-
-    info!("Execution took: {:.2?}.", start_time.elapsed());
+    if let Ok(_) = hasher::hash_dir(input_path.as_path(), &config_args, &config) {
+        info!("Execution took: {:.2?}.", start_time.elapsed());
+    } else {
+        error!("Failure while hashing directory {}", input_path.display());
+        exit(1);
+    }
 }

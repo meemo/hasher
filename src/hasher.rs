@@ -2,12 +2,13 @@ use std::cmp::min;
 use std::fs::{create_dir_all, File};
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
 use crc32fast;
+use digest::DynDigest;
 use hex;
 use log::{info, warn};
 use serde_json::{Map, Value};
@@ -23,7 +24,12 @@ use crate::configuration::{get_hashes, HasherArgs, HasherHashes};
  */
 
 // Read 1 GiB of the file at a time when dealing with large files
-const CHUNK_SIZE: usize = 1024 * 1024 * 1024;
+const CHUNK_SIZE: usize = 512 * 1024 * 1024;
+
+// At a certain file size the overhead to start/stop threads reduces performance compared to sequential.
+// By setting this there can be some minor performance gains with small files.
+// Must be smaller than CHUNK_SIZE, value is currently a complete guess.
+const SEQUENTIAL_SIZE: usize = 32 * 1024 * 1024;
 
 #[derive(Debug)]
 pub enum Error {
@@ -49,93 +55,151 @@ impl From<walkdir::Error> for Error {
     }
 }
 
-// Where the magic happens
-pub fn hash_file_threaded<'a>(
+macro_rules! arclock {
+    ($self:ident) => {
+        $self.lock().unwrap()
+    };
+}
+
+#[inline(always)]
+fn open_file<'a>(file_path: &'a Path) -> Result<(BufReader<File>, usize), Error> {
+    let input_file = File::open(file_path)?;
+    let file_size = input_file.metadata()?.len() as usize;
+    let file_reader = BufReader::new(input_file);
+
+    Ok((file_reader, file_size))
+}
+
+#[inline(always)]
+fn make_buffer(file_size: usize) -> (Arc<RwLock<Vec<u8>>>, usize) {
+    let buffer_size = min(file_size, CHUNK_SIZE);
+    let buffer = Arc::new(RwLock::new(vec![0; buffer_size]));
+
+    (buffer, buffer_size)
+}
+
+fn hash_buffer_sequential(
+    buffer: &Arc<RwLock<Vec<u8>>>,
+    hashes: &mut MutexGuard<Vec<(&str, Arc<Mutex<dyn DynDigest + Send>>)>>,
+    hash_crc32: bool,
+    crc32_hasher: &Arc<Mutex<crc32fast::Hasher>>,
+) -> Result<(), Error> {
+    let buffer_clone = buffer.clone();
+
+    // Calculate each hash sequentially
+    for (_hash_name, hash_mutex) in hashes.iter_mut() {
+        hash_mutex.lock()?.update(buffer_clone.read()?.as_slice());
+    }
+
+    // Hash CRC32 (if applicable)
+    if hash_crc32 {
+        crc32_hasher.lock()?.update(buffer_clone.read()?.as_slice());
+    }
+
+    Ok(())
+}
+
+fn hash_buffer_threaded<'a>(
+    buffer: &Arc<RwLock<Vec<u8>>>,
+    hashes: &mut MutexGuard<Vec<(&str, Arc<Mutex<dyn DynDigest + Send>>)>>,
+    hash_crc32: bool,
+    crc32_hasher: &Arc<Mutex<crc32fast::Hasher>>,
+) -> Result<Vec<JoinHandle<Result<(), Error>>>, Error> {
+    let mut threads: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+
+    // Start threads for each hash
+    for (_hash_name, hash_mutex) in hashes.iter_mut() {
+        let buffer_clone = buffer.clone();
+        let hash_clone = hash_mutex.clone();
+
+        threads.push(thread::spawn(move || {
+            hash_clone.lock()?.update(buffer_clone.read()?.as_slice());
+            Ok(())
+        }));
+    }
+
+    // Start thread for CRC32 (if applicable)
+    if hash_crc32 {
+        let buffer_clone = buffer.clone();
+        let hash_clone = crc32_hasher.clone();
+
+        threads.push(thread::spawn(move || {
+            hash_clone.lock()?.update(buffer_clone.read()?.as_slice());
+            Ok(())
+        }));
+    }
+
+    Ok(threads)
+}
+
+pub fn hash_file<'a>(
     file_path: &'a Path,
     config: &HasherHashes,
 ) -> Result<(usize, Vec<(&'a str, Vec<u8>)>), Error> {
-    info!("Beginning to hash file: {}", file_path.display());
-
+    info!("Hashing file: {}", file_path.display());
     let start_time = Instant::now();
 
-    let input_file = File::open(file_path)?;
-    let file_size: usize = input_file.metadata()?.len() as usize;
-    let mut file_reader = BufReader::new(input_file);
-
-    let buffer_size: usize = min(file_size, CHUNK_SIZE);
-    let buffer = Arc::new(RwLock::new(vec![0; buffer_size]));
+    let (mut file_reader, file_size) = open_file(file_path)?;
 
     let hashes_arc = get_hashes(config);
-    let mut hashes = hashes_arc.lock().unwrap();
-
+    let mut hashes = arclock!(hashes_arc);
     let crc32_hasher = Arc::new(Mutex::new(crc32fast::Hasher::new()));
 
-    // Hash the entire buffer
-    loop {
-        let mut threads: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+    let (mut buffer, mut buffer_size) = make_buffer(file_size);
+    let mut bytes_read = file_reader.read(buffer.write()?.as_mut())?;
 
-        let bytes_read = file_reader.read(buffer.write()?.as_mut())?;
+    if file_size < SEQUENTIAL_SIZE {
+        hash_buffer_sequential(&buffer, &mut hashes, config.crc32, &crc32_hasher)?;
+    } else {
+        loop {
+            if bytes_read == 0 {
+                break;
+            }
 
-        if bytes_read == 0 {
-            break;
-        }
+            // Ensure only the amount of data that was read will be hashed
+            if bytes_read < buffer_size {
+                buffer.write()?.resize(bytes_read, 0);
+            }
 
-        // Ensure only the amount of data that was read will be hashed
-        if bytes_read < buffer_size {
-            buffer.write()?.resize(bytes_read, 0);
-        }
+            let threads = hash_buffer_threaded(&buffer, &mut hashes, config.crc32, &crc32_hasher)?;
 
-        // Start threads for each hash
-        for (_hash_name, hash_mutex) in hashes.iter_mut() {
-            let buffer_clone = buffer.clone();
-            let hash_clone = hash_mutex.clone();
+            // Read the next buffer while the hashing threads are running
+            let (buffer2, buffer2_size) = make_buffer(file_size);
+            bytes_read = file_reader.read(buffer2.write()?.as_mut())?;
 
-            threads.push(thread::spawn(move || {
-                hash_clone.lock()?.update(buffer_clone.read()?.as_slice());
-                Ok(())
-            }));
-        }
+            // Wait for all threads to finish processing
+            for handle in threads.into_iter() {
+                handle.join().unwrap()?;
+            }
 
-        // Start thread for CRC32 (if applicable)
-        if config.crc32 {
-            let buffer_clone = buffer.clone();
-            let hash_clone = crc32_hasher.clone();
-
-            threads.push(thread::spawn(move || {
-                hash_clone.lock()?.update(buffer_clone.read()?.as_slice());
-                Ok(())
-            }));
-        }
-
-        // Wait for all threads to finish processing
-        for handle in threads.into_iter() {
-            handle.join().unwrap()?;
+            drop(buffer.write()?);
+            buffer = buffer2;
+            buffer_size = buffer2_size;
         }
     }
 
     let mut final_hashes: Vec<(&str, Vec<u8>)> = Vec::new();
 
+    info!("Successfully hashed file in {:.2?}", start_time.elapsed());
+    info!("File name: {}", file_path.display());
+    info!("File size: {} bytes", file_size);
+
     // Get the result of each hash in a consistent format
     if config.crc32 {
         final_hashes.push((
             "crc32",
-            crc32_hasher
-                .lock()
-                .unwrap()
+            arclock!(crc32_hasher)
                 .clone()
                 .finalize()
                 .to_be_bytes()
                 .to_vec(),
         ));
+        info!("crc32: {}", hex::encode(&final_hashes[0].1));
     }
 
-    info!("Successfully hashed file in {:.2?}", start_time.elapsed());
-    info!("File name: {}", file_path.display());
-    info!("File size: {} bytes", file_size);
-    info!("crc32: {}", hex::encode(&final_hashes[0].1));
-
     for (hash_name, hash_mutex) in hashes.drain(..) {
-        let hash_vec = hash_mutex.lock().unwrap().finalize_reset().to_vec();
+        let hash_vec = arclock!(hash_mutex).finalize_reset().to_vec();
+
         info!("{}: {}", hash_name, hex::encode(&hash_vec));
 
         final_hashes.push((hash_name, hash_vec));
@@ -167,13 +231,13 @@ fn write_hashes_json(
     let json_obj = Value::Object(map).to_string();
 
     let mut sha256_hasher = Sha256::new();
-    sha256_hasher.update(json_obj.as_bytes());
+    Digest::update(&mut sha256_hasher, json_obj.as_bytes());
     let sha256_hash: String = hex::encode(sha256_hasher.finalize());
 
     let output_path = format!("{}/{}.json", config.json_output_path, sha256_hash);
     info!("Writing output hash file to {}", output_path);
-    let mut output_file = File::create(output_path).expect("Failed to open file!");
 
+    let mut output_file = File::create(output_path).expect("Failed to open file!");
     write!(output_file, "{}\n", json_obj).expect("Failed to write to file.");
 }
 
@@ -199,7 +263,7 @@ pub fn hash_dir(
         match entry {
             Ok(entry_ok) => {
                 if !entry_ok.path().is_dir() {
-                    if let Ok(hashes) = hash_file_threaded(entry_ok.path(), config_hashes) {
+                    if let Ok(hashes) = hash_file(entry_ok.path(), config_hashes) {
                         write_hashes_json(config, entry_ok.path(), hashes.0, hashes.1);
                     } else {
                         warn!(
