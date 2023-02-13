@@ -1,3 +1,8 @@
+[database]
+db_string = "sqlite://test.db"
+table_name = "hashes"
+
+[hashes]
 crc32 = true
 md2 = false
 md4 = false
@@ -39,7 +44,7 @@ gost94_ua = false
 gost94_s2015 = false
 groestl224 = false
 groestl256 = false
-grostl384 = false
+groestl384 = false
 groestl512 = false
 shabal192 = false
 shabal224 = false

@@ -33,7 +33,7 @@ use whirlpool::Whirlpool;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-pub struct HasherArgs {
+pub struct Args {
     /// The path to be hashed
     #[arg(short, long, default_value_t = String::from("."))]
     pub input_path: String,
@@ -72,7 +72,7 @@ pub struct HasherArgs {
 }
 
 #[derive(Deserialize)]
-pub struct HasherHashes {
+pub struct Hashes {
     pub crc32: bool,
     md2: bool,
     md4: bool,
@@ -123,9 +123,21 @@ pub struct HasherHashes {
     shabal512: bool,
 }
 
-pub fn get_config(config_args: &HasherArgs) -> HasherHashes {
+#[derive(Deserialize)]
+pub struct Database {
+    pub db_string: String,
+    pub table_name: String,
+}
+
+#[derive(Deserialize)]
+pub struct Config {
+    pub database: Database,
+    pub hashes: Hashes,
+}
+
+pub fn get_config(config_args: &Args) -> Config {
     if let Ok(config_str) = fs::read_to_string(&config_args.config_file) {
-        let config: HasherHashes =
+        let config: Config =
             toml::from_str(&config_str).expect("Fatal error when reading config file contents!");
         return config;
     } else {
@@ -142,9 +154,10 @@ macro_rules! addhash {
     };
 }
 
+// Please don't look at this.
 #[rustfmt::skip]
 pub fn get_hashes<'a>(
-    config_hashes: &HasherHashes,
+    config_hashes: &Hashes,
 ) -> Arc<Mutex<Vec<(&'a str, Arc<Mutex<dyn DynDigest + Send>>)>>> {
     let hashes: Arc<Mutex<Vec<(&str, Arc<Mutex<dyn DynDigest + Send>>)>>> =
         Arc::new(Mutex::new(Vec::new()));

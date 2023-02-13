@@ -12,6 +12,3 @@ hashes/
 # Test files
 zero
 *.tar.gz
-
-# Completed config files
-config.toml

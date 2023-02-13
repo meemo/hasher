@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
-use crate::configuration::{get_hashes, HasherArgs, HasherHashes};
+use crate::configuration::{get_hashes, Args, Hashes, Config};
 
 /**
  * hasher.rs
@@ -99,6 +99,18 @@ fn hash_buffer_sequential(
     Ok(())
 }
 
+macro_rules! startthread {
+    ($threads:ident, $buffer:ident, $hash_mutex:ident) => {
+        let buffer_clone = $buffer.clone();
+        let hash_clone = $hash_mutex.clone();
+
+        $threads.push(thread::spawn(move || {
+            hash_clone.lock()?.update(buffer_clone.read()?.as_slice());
+            Ok(())
+        }));
+    };
+}
+
 fn hash_buffer_threaded<'a>(
     buffer: &Arc<RwLock<Vec<u8>>>,
     hashes: &mut MutexGuard<Vec<(&str, Arc<Mutex<dyn DynDigest + Send>>)>>,
@@ -107,33 +119,19 @@ fn hash_buffer_threaded<'a>(
 ) -> Result<Vec<JoinHandle<Result<(), Error>>>, Error> {
     let mut threads: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
 
-    // Start threads for each hash
     for (_hash_name, hash_mutex) in hashes.iter_mut() {
-        let buffer_clone = buffer.clone();
-        let hash_clone = hash_mutex.clone();
-
-        threads.push(thread::spawn(move || {
-            hash_clone.lock()?.update(buffer_clone.read()?.as_slice());
-            Ok(())
-        }));
+        startthread!(threads, buffer, hash_mutex);
     }
 
-    // Start thread for CRC32 (if applicable)
     if hash_crc32 {
-        let buffer_clone = buffer.clone();
-        let hash_clone = crc32_hasher.clone();
-
-        threads.push(thread::spawn(move || {
-            hash_clone.lock()?.update(buffer_clone.read()?.as_slice());
-            Ok(())
-        }));
+        startthread!(threads, buffer, crc32_hasher);
     }
 
     Ok(threads)
 }
 
 pub fn hash_stdin<'a>(
-    config: &HasherHashes,
+    config: &Hashes,
     file_path: &'a str,
 ) -> Result<(usize, Vec<(&'a str, Vec<u8>)>), Error> {
     info!("Hashing from stdin.");
@@ -144,6 +142,9 @@ pub fn hash_stdin<'a>(
     let crc32_hasher = Arc::new(Mutex::new(crc32fast::Hasher::new()));
 
     let mut raw_buffer: Vec<u8> = Vec::new();
+
+    // NOTE: This is the reason stdin must be smaller than the avaliable RAM
+    // TODO: improve this section
     std::io::stdin().read_to_end(&mut raw_buffer)?;
 
     let file_size = raw_buffer.len();
@@ -195,7 +196,7 @@ pub fn hash_stdin<'a>(
 
 pub fn hash_file<'a>(
     file_path: &'a Path,
-    config: &HasherHashes,
+    config: &Hashes,
 ) -> Result<(usize, Vec<(&'a str, Vec<u8>)>), Error> {
     info!("Hashing file: {}", file_path.display());
     let start_time = Instant::now();
@@ -209,14 +210,16 @@ pub fn hash_file<'a>(
     let (mut buffer, mut buffer_size) = make_buffer(file_size);
     let mut bytes_read = file_reader.read(buffer.write()?.as_mut())?;
 
-    if file_size < SEQUENTIAL_SIZE {
-        hash_buffer_sequential(&buffer, &mut hashes, config.crc32, &crc32_hasher)?;
-    } else {
-        loop {
-            if bytes_read == 0 {
-                break;
-            }
+    loop {
+        if bytes_read == 0 {
+            break;
+        }
 
+        if bytes_read < SEQUENTIAL_SIZE {
+            hash_buffer_sequential(&buffer, &mut hashes, config.crc32, &crc32_hasher)?;
+
+            bytes_read = file_reader.read(buffer.write()?.as_mut())?;
+        } else {
             // Ensure only the amount of data that was read will be hashed
             if bytes_read < buffer_size {
                 buffer.write()?.resize(bytes_read, 0);
@@ -270,14 +273,14 @@ pub fn hash_file<'a>(
 }
 
 fn write_hashes_json(
-    config: &HasherArgs,
+    config: &Args,
     file_path: &Path,
     file_size: usize,
     hashes: Vec<(&str, Vec<u8>)>,
-) {
+) -> Result<(), Error> {
     let mut map = Map::new();
 
-    create_dir_all(config.json_output_path.clone()).expect("Failed to create output directory.");
+    create_dir_all(config.json_output_path.clone())?;
 
     map.insert(
         "file_path".to_string(),
@@ -298,15 +301,17 @@ fn write_hashes_json(
     let output_path = format!("{}/{}.json", config.json_output_path, sha256_hash);
     info!("Writing output hash file to {}", output_path);
 
-    let mut output_file = File::create(output_path).expect("Failed to open file!");
-    write!(output_file, "{}\n", json_obj).expect("Failed to write to file.");
+    let mut output_file = File::create(output_path)?;
+    write!(output_file, "{}\n", json_obj)?;
+
+    Ok(())
 }
 
 // Uses hash_file_threaded on every file in a directory up to the given depth
 pub fn hash_dir(
     path_to_hash: &Path,
-    config: &HasherArgs,
-    config_hashes: &HasherHashes,
+    args: &Args,
+    config: &Config,
     skip_files: usize,
 ) -> Result<(), Error> {
     let mut file_count: usize = 0;
@@ -314,14 +319,14 @@ pub fn hash_dir(
     info!(
         "Hashing path: {} up to {} level(s) of depth.",
         path_to_hash.display(),
-        config.max_depth
+        args.max_depth
     );
 
     for entry in WalkDir::new(path_to_hash)
         .min_depth(0)
-        .max_depth(config.max_depth)
-        .follow_links(!config.no_follow_symlinks)
-        .contents_first(!config.breadth_first)
+        .max_depth(args.max_depth)
+        .follow_links(!args.no_follow_symlinks)
+        .contents_first(!args.breadth_first)
         .sort_by_file_name()
     {
         // Functionality for skipping a given number of files in the args
@@ -339,8 +344,10 @@ pub fn hash_dir(
         match entry {
             Ok(entry_ok) => {
                 if !entry_ok.path().is_dir() {
-                    if let Ok(hashes) = hash_file(entry_ok.path(), config_hashes) {
-                        write_hashes_json(config, entry_ok.path(), hashes.0, hashes.1);
+                    if let Ok(hashes) = hash_file(entry_ok.path(), &config.hashes) {
+                        // We can finally use the hashes
+
+                        write_hashes_json(args, entry_ok.path(), hashes.0, hashes.1)?;
                     } else {
                         warn!(
                             "Failed to hash file at path {}, skipping",
@@ -367,7 +374,7 @@ pub fn hash_dir(
         }
     }
 
-    info!("Successfully hashed path: {}", path_to_hash.display());
+    info!("Successfully hashed {} files at path: {}", file_count, path_to_hash.display());
 
     Ok(())
 }

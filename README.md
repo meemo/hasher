@@ -58,9 +58,11 @@ Options:
 
 ### Config File
 
-In the root of the repository there is a file named `config.toml.template`. This file should be copied to `config.toml`
-and the values within should be modified to suit your needs. Altering anything but the values in this template may cause
-unintended consequences.
+In the root of the repository there is a file named `config.toml` and the values within should be modified to suit your
+needs. Do not remove any lines or change e.g. booleans to strings, otherwise the program will not run.
+
+The config file will by default be looked for at `./config.toml` when the executable is current (the current working
+directory). If you wish to specify a different location for this then use the `--config-file <path>` option.
 
 ## TODO
 
@@ -95,16 +97,18 @@ unintended consequences.
 
 ### Skipped
 
-The following hashes were not implemented
+The following hashes were not implemented.
+
+XOF hashes (no static output size so they require special handling to use):
 
 - SHA-3
   - SHAKE128/SHAKE256
-    - They are XOF, need special handling
 - BLAKE3
-  - XOF
 - KangarooTwelve
-  - XOF
-- Other CRC variants (these don't implement digest so they aren't easily integrated)
+
+Hashes that don't implement the `digest` traits:
+
+- The rest of the CRC variants
   - Adler CRC32 (aka Adler32)
     - In most cases this should be the same as CRC32, however it has the possibility of being different.
   - CRC16

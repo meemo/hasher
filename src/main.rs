@@ -11,7 +11,7 @@ mod hasher;
 
 fn main() {
     let start_time = Instant::now();
-    let config_args = configuration::HasherArgs::parse();
+    let config_args = configuration::Args::parse();
 
     env_logger::builder()
         .format(|buf, record| {
@@ -31,7 +31,7 @@ fn main() {
 
     if config_args.stdin {
         // Hash the data provided in stdin
-        if let Ok(_) = hasher::hash_stdin(&config, &config_args.input_path) {
+        if let Ok(_) = hasher::hash_stdin(&config.hashes, &config_args.input_path) {
             // do nothing
         } else {
             error!("Failure while hashing from stdin!");
