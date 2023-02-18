@@ -1,6 +1,6 @@
 use std::cmp::min;
 use std::fs::{create_dir_all, File};
-use std::io::{self, BufReader, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::thread;
@@ -13,15 +13,10 @@ use hex;
 use log::{info, warn};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use sqlx::{Connection, AnyConnection};
 use walkdir::WalkDir;
 
 use crate::configuration::{get_hashes, Args, Hashes, Config};
-
-/**
- * hasher.rs
- *
- * Core functions for hashing.
- */
 
 // Read 1 GiB of the file at a time when dealing with large files
 const CHUNK_SIZE: usize = 512 * 1024 * 1024;
@@ -35,6 +30,7 @@ const SEQUENTIAL_SIZE: usize = 32 * 1024 * 1024;
 pub enum Error {
     IO,
     Poison,
+    Database,
 }
 
 impl From<std::io::Error> for Error {
@@ -52,6 +48,12 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
 impl From<walkdir::Error> for Error {
     fn from(_value: walkdir::Error) -> Self {
         Error::IO
+    }
+}
+
+impl From<sqlx::Error> for Error {
+    fn from(_value: sqlx::Error) -> Self {
+        Error::Database
     }
 }
 
@@ -163,10 +165,7 @@ pub fn hash_stdin<'a>(
 
     let mut final_hashes: Vec<(&str, Vec<u8>)> = Vec::new();
 
-    info!(
-        "Successfully hashed file from stdin in {:.2?}",
-        start_time.elapsed()
-    );
+    info!("Successfully hashed file from stdin in {:.2?}", start_time.elapsed());
     info!("File name (in output): {}", file_path);
     info!("File size: {} bytes", file_size);
 
@@ -307,70 +306,77 @@ fn write_hashes_json(
     Ok(())
 }
 
+macro_rules! walkthedir {
+    ($t_path:ident, $t_args:ident) => {
+        WalkDir::new($t_path)
+        .min_depth(0)
+        .max_depth($t_args.max_depth)
+        .follow_links(!$t_args.no_follow_symlinks)
+        .contents_first(!$t_args.breadth_first)
+        .sort_by_file_name()
+    };
+}
+
+macro_rules! skippingfile {
+    ($file_count:ident, $args:ident, $entry:ident) => {
+        info!(
+            "Skipping ({}/{}) file {}",
+            $file_count,
+            $args.skip_files,
+            $entry?.path().display()
+        );
+        continue;
+    };
+}
+
 // Uses hash_file_threaded on every file in a directory up to the given depth
-pub fn hash_dir(
+pub async fn hash_dir(
     path_to_hash: &Path,
     args: &Args,
     config: &Config,
-    skip_files: usize,
 ) -> Result<(), Error> {
     let mut file_count: usize = 0;
 
-    info!(
-        "Hashing path: {} up to {} level(s) of depth.",
-        path_to_hash.display(),
-        args.max_depth
-    );
+    info!("Hashing path: {} up to {} level(s) of depth.", path_to_hash.display(), args.max_depth);
 
-    for entry in WalkDir::new(path_to_hash)
-        .min_depth(0)
-        .max_depth(args.max_depth)
-        .follow_links(!args.no_follow_symlinks)
-        .contents_first(!args.breadth_first)
-        .sort_by_file_name()
-    {
+    //let db_conn = AnyConnection::connect(&config.database.db_string).await?;
+
+    for entry in walkthedir!(path_to_hash, args) {
         // Functionality for skipping a given number of files in the args
         file_count += 1;
-        if file_count <= skip_files {
-            info!(
-                "Skipping ({}/{}) file {}",
-                file_count,
-                skip_files,
-                entry?.path().display()
-            );
-            continue;
+
+        if file_count <= args.skip_files {
+            skippingfile!(file_count, args, entry);
         }
 
-        match entry {
-            Ok(entry_ok) => {
-                if !entry_ok.path().is_dir() {
-                    if let Ok(hashes) = hash_file(entry_ok.path(), &config.hashes) {
-                        // We can finally use the hashes
-
-                        write_hashes_json(args, entry_ok.path(), hashes.0, hashes.1)?;
-                    } else {
-                        warn!(
-                            "Failed to hash file at path {}, skipping",
-                            entry_ok.path().display()
-                        );
-                    }
-                }
-            }
-            Err(err) => {
-                let path = err.path().unwrap_or(Path::new("")).display();
-                warn!("Failed to access entry at {}", path);
-
-                if let Some(inner) = err.io_error() {
-                    match inner.kind() {
-                        io::ErrorKind::PermissionDenied => {
-                            warn!("Missing permission to read entry: {}, skipping", inner);
+        if let Ok(entry_ok) = entry {
+            // Only hash files, not directories
+            if !entry_ok.path().is_dir() {
+                match hash_file(entry_ok.path(), &config.hashes) {
+                    Ok(hashes) => {
+                        if args.sql_out {
+                            todo!();
                         }
-                        _ => {
-                            warn!("Unexpected error at entry: {}, skipping", inner);
+
+                        if args.json_out {
+                            write_hashes_json(args, entry_ok.path(), hashes.0, hashes.1)?;
+                        }
+                    }
+                    Err(err) => {
+                        let path = entry_ok.path().display();
+                        match err {
+                            Error::IO => {
+                                warn!("Failed to access file at {}, skipping", path);
+                            }
+                            _ => {
+                                warn!("Unhandeled exception while hashing file at {}! (this shouldn't happen)", path);
+                            }
                         }
                     }
                 }
             }
+        } else {
+            warn!("Unexpected error accessing an entry! (this shouldn't happen)");
         }
     }
 

@@ -5,15 +5,14 @@ use std::{path::PathBuf, process::exit};
 
 use clap::Parser;
 use log::{error, info};
+use tokio;
 
 mod configuration;
 mod hasher;
 
-fn main() {
-    let start_time = Instant::now();
-    let config_args = configuration::Args::parse();
-
-    env_logger::builder()
+macro_rules! startlogging {
+    ($config_args:ident) => {
+        env_logger::builder()
         .format(|buf, record| {
             writeln!(
                 buf,
@@ -23,8 +22,17 @@ fn main() {
                 record.args()
             )
         })
-        .filter_level(config_args.verbose.log_level_filter())
+        .filter_level($config_args.verbose.log_level_filter())
         .init();
+    };
+}
+
+#[tokio::main]
+async fn main() {
+    let start_time = Instant::now();
+    let config_args = configuration::Args::parse();
+
+    startlogging!(config_args);
 
     let config = configuration::get_config(&config_args);
     let input_path = PathBuf::from(&config_args.input_path);
@@ -39,12 +47,7 @@ fn main() {
         }
     } else {
         // Hash the file at the given path
-        if let Ok(_) = hasher::hash_dir(
-            input_path.as_path(),
-            &config_args,
-            &config,
-            config_args.skip_files,
-        ) {
+        if let Ok(_) = hasher::hash_dir(input_path.as_path(), &config_args, &config).await {
             // do nothing
         } else {
             error!("Failure while hashing directory {}", input_path.display());

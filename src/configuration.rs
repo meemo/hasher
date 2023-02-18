@@ -25,11 +25,6 @@ use streebog::{Streebog256, Streebog512};
 use tiger::{Tiger, Tiger2};
 use whirlpool::Whirlpool;
 
-/**
- * configuration.rs
- *
- * Configuration of the program.
- */
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -40,6 +35,14 @@ pub struct Args {
 
     #[clap(flatten)]
     pub verbose: Verbosity<WarnLevel>,
+
+    /// Whether or not to write hashes to JSON
+    #[arg(long, default_value_t = false)]
+    pub json_out: bool,
+
+    /// Whether or not to write hashes to the configured SQL database
+    #[arg(long, default_value_t = false)]
+    pub sql_out: bool,
 
     /// The path to output hashes, {path}/{sha256}.json
     #[arg(short, long, default_value_t = String::from("./hashes"))]
