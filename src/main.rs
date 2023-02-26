@@ -13,46 +13,46 @@ mod hasher;
 macro_rules! startlogging {
     ($config_args:ident) => {
         env_logger::builder()
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "[{}][{}] {}",
-                Utc::now().timestamp(),
-                record.level(),
-                record.args()
-            )
-        })
-        .filter_level($config_args.verbose.log_level_filter())
-        .init();
+            .format(|buf, record| {
+                writeln!(
+                    buf,
+                    "[{}][{}] {}",
+                    Utc::now().timestamp(),
+                    record.level(),
+                    record.args()
+                )
+            })
+            .filter_level($config_args.verbose.log_level_filter())
+            .init();
     };
 }
 
 #[tokio::main]
 async fn main() {
     let start_time = Instant::now();
-    let config_args = configuration::Args::parse();
+    let args = configuration::Args::parse();
 
-    startlogging!(config_args);
+    startlogging!(args);
 
-    let config = configuration::get_config(&config_args);
-    let input_path = PathBuf::from(&config_args.input_path);
+    let config = configuration::get_config(&args);
+    let input_path = PathBuf::from(&args.input_path);
 
-    if config_args.stdin {
+    // Only sqlite databases are supported at the moment
+    if args.sql_out && !config.database.db_string.starts_with("sqlite") {
+        error!("Non-sqlite databases are not implemented yet!");
+        exit(1);
+    }
+
+    if args.stdin {
         // Hash the data provided in stdin
-        if let Ok(_) = hasher::hash_stdin(&config.hashes, &config_args.input_path) {
-            // do nothing
-        } else {
-            error!("Failure while hashing from stdin!");
-            exit(1);
-        }
+        hasher::hash_stdin(&config, &args.input_path)
+            .await
+            .expect("Failure while hashing from stdin!");
     } else {
         // Hash the file at the given path
-        if let Ok(_) = hasher::hash_dir(input_path.as_path(), &config_args, &config).await {
-            // do nothing
-        } else {
-            error!("Failure while hashing directory {}", input_path.display());
-            exit(1);
-        }
+        hasher::hash_dir(input_path.as_path(), &args, &config)
+            .await
+            .expect("Failure while hashing directory!");
     }
 
     info!("Execution took: {:.2?}.", start_time.elapsed());

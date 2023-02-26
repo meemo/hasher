@@ -25,7 +25,6 @@ use streebog::{Streebog256, Streebog512};
 use tiger::{Tiger, Tiger2};
 use whirlpool::Whirlpool;
 
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -44,7 +43,7 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub sql_out: bool,
 
-    /// The path to output hashes, {path}/{sha256}.json
+    /// The path to output {path}/{sha256}.json
     #[arg(short, long, default_value_t = String::from("./hashes"))]
     pub json_output_path: String,
 
@@ -148,71 +147,75 @@ pub fn get_config(config_args: &Args) -> Config {
     }
 }
 
-macro_rules! addhash {
-    ($hashes:ident, $name:literal, $hash:expr) => {
-        $hashes
-            .lock()
-            .unwrap()
-            .push(($name, Arc::new(Mutex::new($hash))))
-    };
-}
-
-// Please don't look at this.
-#[rustfmt::skip]
 pub fn get_hashes<'a>(
     config_hashes: &Hashes,
 ) -> Arc<Mutex<Vec<(&'a str, Arc<Mutex<dyn DynDigest + Send>>)>>> {
     let hashes: Arc<Mutex<Vec<(&str, Arc<Mutex<dyn DynDigest + Send>>)>>> =
         Arc::new(Mutex::new(Vec::new()));
 
-    if config_hashes.md2 { addhash!(hashes, "md2", Md2::new()); }
-    if config_hashes.md4 { addhash!(hashes, "md4", Md4::new()); }
-    if config_hashes.md5 { addhash!(hashes, "md5", Md5::new()); }
-    if config_hashes.sha1 { addhash!(hashes, "sha1", Sha1::new()); }
-    if config_hashes.sha224 { addhash!(hashes, "sha224", Sha224::new()); }
-    if config_hashes.sha256 { addhash!(hashes, "sha256", Sha256::new()); }
-    if config_hashes.sha384 { addhash!(hashes, "sha384", Sha384::new()); }
-    if config_hashes.sha512 { addhash!(hashes, "sha512", Sha512::new()); }
-    if config_hashes.sha3_224 { addhash!(hashes, "sha3_224", Sha3_224::new()); }
-    if config_hashes.sha3_256 { addhash!(hashes, "sha3_256", Sha3_256::new()); }
-    if config_hashes.sha3_384 { addhash!(hashes, "sha3_384", Sha3_384::new()); }
-    if config_hashes.sha3_512 { addhash!(hashes, "sha3_512", Sha3_512::new()); }
-    if config_hashes.keccak224 { addhash!(hashes, "keccak224", Keccak224::new()); }
-    if config_hashes.keccak256 { addhash!(hashes, "keccak256", Keccak256::new()); }
-    if config_hashes.keccak384 { addhash!(hashes, "keccak384", Keccak384::new()); }
-    if config_hashes.keccak512 { addhash!(hashes, "keccak512", Keccak512::new()); }
-    if config_hashes.belt_hash { addhash!(hashes, "belt_hash", BeltHash::new()); }
-    if config_hashes.blake2s256 { addhash!(hashes, "blake2s256", Blake2s256::new()); }
-    if config_hashes.blake2b512 { addhash!(hashes, "blake2b512", Blake2b512::new()); }
-    if config_hashes.whirlpool { addhash!(hashes, "whirlpool", Whirlpool::new()); }
-    if config_hashes.tiger { addhash!(hashes, "tiger", Tiger::new()); }
-    if config_hashes.tiger2 { addhash!(hashes, "tiger2", Tiger2::new()); }
-    if config_hashes.streebog256 { addhash!(hashes, "streebog256", Streebog256::new()); }
-    if config_hashes.streebog512 { addhash!(hashes, "streebog512", Streebog512::new()); }
-    if config_hashes.ripemd128 { addhash!(hashes, "ripemd128", Ripemd128::new()); }
-    if config_hashes.ripemd160 { addhash!(hashes, "ripemd160", Ripemd160::new()); }
-    if config_hashes.ripemd256 { addhash!(hashes, "ripemd256", Ripemd256::new()); }
-    if config_hashes.ripemd320 { addhash!(hashes, "ripemd320", Ripemd320::new()); }
-    if config_hashes.ripemd128 { addhash!(hashes, "ripemd128", Ripemd128::new()); }
-    if config_hashes.fsb160 { addhash!(hashes, "fsb160", Fsb160::new()); }
-    if config_hashes.fsb224 { addhash!(hashes, "fsb224", Fsb224::new()); }
-    if config_hashes.fsb256 { addhash!(hashes, "fsb256", Fsb256::new()); }
-    if config_hashes.fsb384 { addhash!(hashes, "fsb384", Fsb384::new()); }
-    if config_hashes.fsb512 { addhash!(hashes, "fsb512", Fsb512::new()); }
-    if config_hashes.sm3 { addhash!(hashes, "sm3", Sm3::new()); }
-    if config_hashes.gost94_cryptopro { addhash!(hashes, "gost94_cryptopro", Gost94CryptoPro::new()); }
-    if config_hashes.gost94_test { addhash!(hashes, "gost94_test", Gost94Test::new()); }
-    if config_hashes.gost94_ua { addhash!(hashes, "gost94_ua", Gost94UA::new()); }
-    if config_hashes.gost94_s2015 { addhash!(hashes, "gost94_s2015", Gost94s2015::new()); }
-    if config_hashes.groestl224 { addhash!(hashes, "groestl224", Groestl224::new()); }
-    if config_hashes.groestl256 { addhash!(hashes, "groestl256", Groestl256::new()); }
-    if config_hashes.groestl384 { addhash!(hashes, "groestl384", Groestl384::new()); }
-    if config_hashes.groestl512 { addhash!(hashes, "groestl512", Groestl512::new()); }
-    if config_hashes.shabal192 { addhash!(hashes, "shabal192", Shabal192::new()); }
-    if config_hashes.shabal224 { addhash!(hashes, "shabal224", Shabal224::new()); }
-    if config_hashes.shabal256 { addhash!(hashes, "shabal256", Shabal256::new()); }
-    if config_hashes.shabal384 { addhash!(hashes, "shabal384", Shabal384::new()); }
-    if config_hashes.shabal512 { addhash!(hashes, "shabal512", Shabal512::new()); }
+    macro_rules! addhashes {
+        ( $(($hash:tt, $hash_fn:tt)),* ) => {
+            $(
+                if config_hashes.$hash {
+                    hashes
+                    .lock()
+                    .unwrap()
+                    .push((stringify!($hash), Arc::new(Mutex::new($hash_fn::new()))))
+                };
+            )*
+        }
+    }
+
+    addhashes!(
+        (md2, Md2),
+        (md4, Md4),
+        (md5, Md5),
+        (sha1, Sha1),
+        (sha224, Sha224),
+        (sha256, Sha256),
+        (sha384, Sha384),
+        (sha512, Sha512),
+        (sha3_224, Sha3_224),
+        (sha3_256, Sha3_256),
+        (sha3_384, Sha3_384),
+        (sha3_512, Sha3_512),
+        (keccak224, Keccak224),
+        (keccak256, Keccak256),
+        (keccak384, Keccak384),
+        (keccak512, Keccak512),
+        (belt_hash, BeltHash),
+        (blake2s256, Blake2s256),
+        (blake2b512, Blake2b512),
+        (whirlpool, Whirlpool),
+        (tiger, Tiger),
+        (tiger2, Tiger2),
+        (streebog256, Streebog256),
+        (streebog512, Streebog512),
+        (ripemd128, Ripemd128),
+        (ripemd160, Ripemd160),
+        (ripemd256, Ripemd256),
+        (ripemd320, Ripemd320),
+        (ripemd128, Ripemd128),
+        (fsb160, Fsb160),
+        (fsb224, Fsb224),
+        (fsb256, Fsb256),
+        (fsb384, Fsb384),
+        (fsb512, Fsb512),
+        (sm3, Sm3),
+        (gost94_cryptopro, Gost94CryptoPro),
+        (gost94_test, Gost94Test),
+        (gost94_ua, Gost94UA),
+        (gost94_s2015, Gost94s2015),
+        (groestl224, Groestl224),
+        (groestl256, Groestl256),
+        (groestl384, Groestl384),
+        (groestl512, Groestl512),
+        (shabal192, Shabal192),
+        (shabal224, Shabal224),
+        (shabal256, Shabal256),
+        (shabal384, Shabal384),
+        (shabal512, Shabal512)
+    );
 
     hashes
 }

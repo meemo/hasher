@@ -1,4 +1,6 @@
 [database]
+# Note: only sqlite databases are currently supported! Replace `test.db` with the path to the database.
+# Databases must follow the schema in sqlite.md, however the table name can be changed.
 db_string = "sqlite://test.db"
 table_name = "hashes"
 

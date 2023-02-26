@@ -1,13 +1,16 @@
 # sqlite
 
-This is used for testing.
+Example schema used in testing. The rows must be compatible (when in doubt match) with this, however the table name can
+be changed in [config.toml](config.toml).
 
 ## Schema
 
 ```sql
+PRAGMA journal_mode=WAL;
+
 create table if not exists hashes (
     file_path text not null,
-    file_size numeric not null,
+    file_size numeric,
     crc32 blob,
     md2 blob,
     md4 blob,
@@ -55,6 +58,6 @@ create table if not exists hashes (
     shabal224 blob,
     shabal256 blob,
     shabal384 blob,
-    shabal512 blob,
+    shabal512 blob
 );
 ```

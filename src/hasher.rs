@@ -13,10 +13,11 @@ use hex;
 use log::{info, warn};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use sqlx::{Connection, AnyConnection};
+use sqlx::{query_builder::QueryBuilder, Connection};
+use sqlx::{Sqlite, SqliteConnection};
 use walkdir::WalkDir;
 
-use crate::configuration::{get_hashes, Args, Hashes, Config};
+use crate::configuration::{get_hashes, Args, Config, Hashes};
 
 // Read 1 GiB of the file at a time when dealing with large files
 const CHUNK_SIZE: usize = 512 * 1024 * 1024;
@@ -132,16 +133,17 @@ fn hash_buffer_threaded<'a>(
     Ok(threads)
 }
 
-pub fn hash_stdin<'a>(
-    config: &Hashes,
-    file_path: &'a str,
-) -> Result<(usize, Vec<(&'a str, Vec<u8>)>), Error> {
+pub async fn hash_stdin<'a>(config: &Config, file_path: &'a str) -> Result<(), Error> {
     info!("Hashing from stdin.");
     let start_time = Instant::now();
 
-    let hashes_arc = get_hashes(config);
+    let hashes_arc = get_hashes(&config.hashes);
     let mut hashes = arclock!(hashes_arc);
     let crc32_hasher = Arc::new(Mutex::new(crc32fast::Hasher::new()));
+
+    let mut db_conn = SqliteConnection::connect(&config.database.db_string)
+        .await
+        .expect("Failed to connect to db!");
 
     let mut raw_buffer: Vec<u8> = Vec::new();
 
@@ -153,9 +155,10 @@ pub fn hash_stdin<'a>(
     let buffer = Arc::new(RwLock::new(raw_buffer));
 
     if file_size < SEQUENTIAL_SIZE {
-        hash_buffer_sequential(&buffer, &mut hashes, config.crc32, &crc32_hasher)?;
+        hash_buffer_sequential(&buffer, &mut hashes, config.hashes.crc32, &crc32_hasher)?;
     } else {
-        let threads = hash_buffer_threaded(&buffer, &mut hashes, config.crc32, &crc32_hasher)?;
+        let threads =
+            hash_buffer_threaded(&buffer, &mut hashes, config.hashes.crc32, &crc32_hasher)?;
 
         // Wait for all threads to finish processing
         for handle in threads.into_iter() {
@@ -165,12 +168,15 @@ pub fn hash_stdin<'a>(
 
     let mut final_hashes: Vec<(&str, Vec<u8>)> = Vec::new();
 
-    info!("Successfully hashed file from stdin in {:.2?}", start_time.elapsed());
+    info!(
+        "Successfully hashed file from stdin in {:.2?}",
+        start_time.elapsed()
+    );
     info!("File name (in output): {}", file_path);
     info!("File size: {} bytes", file_size);
 
     // Get the result of each hash in a consistent format
-    if config.crc32 {
+    if config.hashes.crc32 {
         final_hashes.push((
             "crc32",
             arclock!(crc32_hasher)
@@ -190,7 +196,16 @@ pub fn hash_stdin<'a>(
         final_hashes.push((hash_name, hash_vec));
     }
 
-    Ok((file_size, final_hashes))
+    insert_hashes_sql(
+        config,
+        Path::new(file_path),
+        &(file_size, final_hashes),
+        &mut db_conn,
+    )
+    .await
+    .expect("Failed to insert hashes! This is likely a schema error.");
+
+    Ok(())
 }
 
 pub fn hash_file<'a>(
@@ -307,59 +322,91 @@ fn write_hashes_json(
 }
 
 macro_rules! walkthedir {
-    ($t_path:ident, $t_args:ident) => {
-        WalkDir::new($t_path)
-        .min_depth(0)
-        .max_depth($t_args.max_depth)
-        .follow_links(!$t_args.no_follow_symlinks)
-        .contents_first(!$t_args.breadth_first)
-        .sort_by_file_name()
+    ($path:ident, $args:ident) => {
+        WalkDir::new($path)
+            .min_depth(0)
+            .max_depth($args.max_depth)
+            .follow_links(!$args.no_follow_symlinks)
+            .contents_first(!$args.breadth_first)
+            .sort_by_file_name()
     };
 }
 
-macro_rules! skippingfile {
-    ($file_count:ident, $args:ident, $entry:ident) => {
-        info!(
-            "Skipping ({}/{}) file {}",
-            $file_count,
-            $args.skip_files,
-            $entry?.path().display()
-        );
-        continue;
-    };
+async fn insert_hashes_sql(
+    config: &Config,
+    file_path: &Path,
+    hashes: &(usize, Vec<(&str, Vec<u8>)>),
+    db_conn: &mut SqliteConnection,
+) -> Result<(), Error> {
+    let mut query_builder: QueryBuilder<Sqlite> = QueryBuilder::new("INSERT INTO ");
+
+    query_builder.push(config.database.table_name.to_string());
+
+    let mut sep = query_builder.separated(", ");
+    sep.push_unseparated(" (");
+    sep.push("file_path");
+    sep.push("file_size");
+    for hash in &hashes.1 {
+        sep.push(hash.0.to_string());
+    }
+
+    let mut sep = query_builder.separated(", ");
+    sep.push_unseparated(") VALUES (");
+    sep.push_bind(file_path.display().to_string());
+    sep.push_bind(hashes.0 as f64);
+    for hash in &hashes.1 {
+        sep.push_bind(hash.1.as_slice());
+    }
+
+    sep.push_unseparated(");");
+
+    let query = query_builder.build();
+    query.execute(db_conn).await?;
+
+    Ok(())
 }
 
 // Uses hash_file_threaded on every file in a directory up to the given depth
-pub async fn hash_dir(
-    path_to_hash: &Path,
-    args: &Args,
-    config: &Config,
-) -> Result<(), Error> {
+pub async fn hash_dir(path_to_hash: &Path, args: &Args, config: &Config) -> Result<(), Error> {
     let mut file_count: usize = 0;
 
-    info!("Hashing path: {} up to {} level(s) of depth.", path_to_hash.display(), args.max_depth);
+    info!(
+        "Hashing path: {} up to {} level(s) of depth.",
+        path_to_hash.display(),
+        args.max_depth
+    );
 
-    //let db_conn = AnyConnection::connect(&config.database.db_string).await?;
+    let mut db_conn = SqliteConnection::connect(&config.database.db_string)
+        .await
+        .expect("Failed to connect to db!");
 
     for entry in walkthedir!(path_to_hash, args) {
-        // Functionality for skipping a given number of files in the args
-        file_count += 1;
-
-        if file_count <= args.skip_files {
-            skippingfile!(file_count, args, entry);
-        }
-
         if let Ok(entry_ok) = entry {
             // Only hash files, not directories
             if !entry_ok.path().is_dir() {
+                // Functionality for skipping a given number of files in the args
+                file_count += 1;
+
+                if file_count <= args.skip_files {
+                    info!(
+                        "Skipping ({}/{}) file {}",
+                        file_count,
+                        args.skip_files,
+                        entry_ok.path().display()
+                    );
+                    continue;
+                }
+
                 match hash_file(entry_ok.path(), &config.hashes) {
                     Ok(hashes) => {
                         if args.sql_out {
-                            todo!();
-                        }
-
-                        if args.json_out {
+                            insert_hashes_sql(config, entry_ok.path(), &hashes, &mut db_conn)
+                                .await
+                                .expect("Failed to insert hashes! This is likely a schema error.");
+                        } else if args.json_out {
                             write_hashes_json(args, entry_ok.path(), hashes.0, hashes.1)?;
+                        } else {
+                            warn!("Nothing selected to do with hashes! This shouldn't happen!");
                         }
                     }
                     Err(err) => {
@@ -380,7 +427,11 @@ pub async fn hash_dir(
         }
     }
 
-    info!("Successfully hashed {} files at path: {}", file_count, path_to_hash.display());
+    info!(
+        "Successfully hashed {} files at path: {}",
+        file_count,
+        path_to_hash.display()
+    );
 
     Ok(())
 }
