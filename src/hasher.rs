@@ -403,10 +403,10 @@ pub async fn hash_dir(path_to_hash: &Path, args: &Args, config: &Config) -> Resu
                             insert_hashes_sql(config, entry_ok.path(), &hashes, &mut db_conn)
                                 .await
                                 .expect("Failed to insert hashes! This is likely a schema error.");
-                        } else if args.json_out {
+                        }
+
+                        if args.json_out {
                             write_hashes_json(args, entry_ok.path(), hashes.0, hashes.1)?;
-                        } else {
-                            warn!("Nothing selected to do with hashes! This shouldn't happen!");
                         }
                     }
                     Err(err) => {

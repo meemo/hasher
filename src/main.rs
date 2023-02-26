@@ -4,7 +4,7 @@ use std::time::Instant;
 use std::{path::PathBuf, process::exit};
 
 use clap::Parser;
-use log::{error, info};
+use log::{error, warn, info};
 use tokio;
 
 mod configuration;
@@ -41,6 +41,10 @@ async fn main() {
     if args.sql_out && !config.database.db_string.starts_with("sqlite") {
         error!("Non-sqlite databases are not implemented yet!");
         exit(1);
+    }
+
+    if !args.sql_out && !args.json_out {
+        warn!("No output method selected! Hashed results will not go anywhere!");
     }
 
     if args.stdin {
