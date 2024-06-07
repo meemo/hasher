@@ -1,60 +1,98 @@
 # hasher
 
-hasher is a program that will be able compute a number of different hashes while only reading a file once. A buffer is
-read and then threads are spawned for each selected hash, resulting in huge speed gains over hashing sequentially.
+hasher is a program that can do multithreaded simultaneously hashing of files with up to 48 hashing algorithms while
+only reading the file once. This is great for making use of
 
-Currently this will spit out a bunch of JSON files at the designated directory, however this will change soon.
+Hashes are able to be output in 3 locations: stdout (with `-v` or higher), SQLite (with `--sql-out`), and JSON
+(`--json-out`).
 
 ## Building
 
-hasher requires a fairly modern version of Rust, preferably the latest. Install it using the instructions located
-[here](https://www.rust-lang.org/tools/install) for the latest stable release.
+hasher requires a fairly modern version of Rust, preferably the latest stable release. Install it using the instructions
+located[here](https://www.rust-lang.org/tools/install). Releases are currently not provided because of the reliance on
+the config file. I plan to make this not an issue in a future release.
 
 To build, run the following at the root of the repository:
 
-```
+```shell
 cargo build -r
 ```
 
-After this is complete your binary will be located at `target/release/hasher` and can be moved wherever you desire (or
-not, I'm not your dad).
+Go ahead and get yourself a drink while this is running, it will take a while. After this is complete your binary will
+be located at `target/release/hasher` and can be moved wherever you desire (or not, your choice).
+
+### musl libc Builds
+
+On Linux systems you may run into some glibc version issues if you, for example, build on an Arch Linux system and then
+run on a Debian Stable system.. The easiest way to alleviate this issue is to build the application on the target you
+are running, however that's not always possible or desirable so there is another option: static compilation with libc
+built into the binary. This can be done with the following steps:
+
+```shell
+sudo apt install musl-tools  # Or equivalent package for musl-gcc on your system
+
+rustup target add x86_64-unknown-linux-musl
+cargo build -r --target=x86_64-unknown-linux-musl
+```
+
+This will create a release build in the same location as normal builds but now it will not use glibc.
 
 ## Usage
 
 ### General
 
-```
+```shell
 $ ./hasher --help
-A parallel file hashing program.
+Multithreaded parallel hashing utility
 
 Usage: hasher [OPTIONS]
 
 Options:
   -i, --input-path <INPUT_PATH>
-          The path to be hashed [default: .]
+          The path to hash the files inside [default: .]
   -v, --verbose...
-          More output per occurrence
+          Increase logging verbosity
   -q, --quiet...
-          Less output per occurrence
+          Decrease logging verbosity
+      --json-out
+          Write hashes to JSON
+      --sql-out
+          Write hashes to the SQLite database in the config
+      --use-wal
+          Enable WAL mode in the SQLite database while running
   -j, --json-output-path <JSON_OUTPUT_PATH>
-          The path to output hashes, {path}/{sha256}.json [default: ./hashes]
+          The path to output {path}/{sha256 of file}.json [default: ./hashes]
   -c, --config-file <CONFIG_FILE>
           The location of the config file [default: ./config.toml]
       --stdin
-          Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output. Note: input must be smaller than the avaliable RAM
+          Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output
       --max-depth <MAX_DEPTH>
-          Maximum number of subdirectories to descend when recursing directories [default: 16]
+          Maximum number of subdirectories to descend when recursing directories [default: 20]
       --skip-files <SKIP_FILES>
-          Number of files (inclusive) to skip before beginning to hash a directory [default: 0]
+          Number of files (inclusive) to skip before beginning to hash a directory. Meant for resuming interrupted hashing runs, don't use this normally [default: 0]
       --no-follow-symlinks
-          DON'T follow symlinks
+          DON'T follow symlinks. Infinite loops are possible if this is off and there are bad symlinks
       --breadth-first
           Hash directories breadth first instead of depth first
+      --dry-run
+          Does not write hashes anywhere but stdout. Useful for benchmarking and if you hands are cold
   -h, --help
           Print help
   -V, --version
           Print version
 ```
+
+### Example Usage
+
+Say I want to to hash all of the files in the `dev/` and view the output in stdout while writing to a SQLite database,
+while accelerating the performance with WAL (write ahead log). Run this in the root of the repository after building:
+
+```shell
+./hasher -v --sql-out --use-wal -i dev/
+```
+
+Assuming the default `config.toml` is used, this will hash everything to the database `myhashes.db` in the current
+working directory.
 
 ### Config File
 
@@ -64,10 +102,21 @@ needs. Do not remove any lines or change e.g. booleans to strings, otherwise the
 The config file will by default be looked for at `./config.toml` when the executable is current (the current working
 directory). If you wish to specify a different location for this then use the `--config-file <path>` option.
 
-## TODO
+### SQLite Database (`--sql-out`)
 
-- Add outputting hashes to SQL database (instead of JSON files).
-  - --json-out and --sql-out args
+The database will automatically be created with the appropriate table name (by default `hashes`) regardless if the file
+exists already.
+
+For more information on the schema of this database, see [`sqlite.md`](sqlite.md).
+
+### JSON Out (`--json-out`)
+
+This option spits out the hashed files into the directory given. This is very much not recommended because the file
+count of larger hashing runs will waste approximately 3x the size of the json itself due to sector size loss, so if you
+are doing a bulk run it is highly suggested to use the database instead.
+
+Each file is named with the sha256 hash of the file, so don't disable that hash. The contents of the JSON files are very
+simple, and are the same names as the SQLite database's schema.
 
 ## Hashes
 

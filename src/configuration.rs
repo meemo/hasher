@@ -1,7 +1,5 @@
-use std::{
-    fs,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
+use std::fs;
 
 use belt_hash::BeltHash;
 use blake2::{Blake2b512, Blake2s256};
@@ -28,22 +26,26 @@ use whirlpool::Whirlpool;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// The path to be hashed
+    /// The path to hash the files inside
     #[arg(short, long, default_value_t = String::from("."))]
     pub input_path: String,
 
     #[clap(flatten)]
     pub verbose: Verbosity<WarnLevel>,
 
-    /// Whether or not to write hashes to JSON
+    /// Write hashes to JSON
     #[arg(long, default_value_t = false)]
     pub json_out: bool,
 
-    /// Whether or not to write hashes to the configured SQL database
+    /// Write hashes to the SQLite database in the config
     #[arg(long, default_value_t = false)]
     pub sql_out: bool,
 
-    /// The path to output {path}/{sha256}.json
+    /// Enable WAL mode in the SQLite database while running
+    #[arg(long, default_value_t = false)]
+    pub use_wal: bool,
+
+    /// The path to output {path}/{sha256 of file}.json
     #[arg(short, long, default_value_t = String::from("./hashes"))]
     pub json_output_path: String,
 
@@ -51,78 +53,82 @@ pub struct Args {
     #[arg(short, long, default_value_t = String::from("./config.toml"))]
     pub config_file: String,
 
-    /// Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output.
-    /// Note: input must be smaller than the avaliable RAM.
+    /// Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output
     #[arg(long, default_value_t = false)]
     pub stdin: bool,
 
     /// Maximum number of subdirectories to descend when recursing directories
-    #[arg(long, default_value_t = 16)]
+    #[arg(long, default_value_t = 20)]
     pub max_depth: usize,
 
     /// Number of files (inclusive) to skip before beginning to hash a directory.
+    /// Meant for resuming interrupted hashing runs, don't use this normally.
     #[arg(long, default_value_t = 0)]
     pub skip_files: usize,
 
-    /// DON'T follow symlinks
+    /// DON'T follow symlinks. Infinite loops are possible if this is off and there are bad symlinks.
     #[arg(long, default_value_t = false)]
     pub no_follow_symlinks: bool,
 
     /// Hash directories breadth first instead of depth first
     #[arg(long, default_value_t = false)]
     pub breadth_first: bool,
+
+    /// Does not write hashes anywhere but stdout. Useful for benchmarking and if you hands are cold.
+    #[arg(long, default_value_t = false)]
+    pub dry_run: bool,
 }
 
 #[derive(Deserialize)]
 pub struct Hashes {
-    pub crc32: bool,
-    md2: bool,
-    md4: bool,
-    md5: bool,
-    sha1: bool,
-    sha224: bool,
-    sha256: bool,
-    sha384: bool,
-    sha512: bool,
-    sha3_224: bool,
-    sha3_256: bool,
-    sha3_384: bool,
-    sha3_512: bool,
-    keccak224: bool,
-    keccak256: bool,
-    keccak384: bool,
-    keccak512: bool,
-    blake2s256: bool,
-    blake2b512: bool,
-    belt_hash: bool,
-    whirlpool: bool,
-    tiger: bool,
-    tiger2: bool,
-    streebog256: bool,
-    streebog512: bool,
-    ripemd128: bool,
-    ripemd160: bool,
-    ripemd256: bool,
-    ripemd320: bool,
-    fsb160: bool,
-    fsb224: bool,
-    fsb256: bool,
-    fsb384: bool,
-    fsb512: bool,
-    sm3: bool,
-    gost94_cryptopro: bool,
-    gost94_test: bool,
-    gost94_ua: bool,
-    gost94_s2015: bool,
-    groestl224: bool,
-    groestl256: bool,
-    groestl384: bool,
-    groestl512: bool,
-    shabal192: bool,
-    shabal224: bool,
-    shabal256: bool,
-    shabal384: bool,
-    shabal512: bool,
+    pub crc32: Option<bool>,
+    md2: Option<bool>,
+    md4: Option<bool>,
+    md5: Option<bool>,
+    sha1: Option<bool>,
+    sha224: Option<bool>,
+    sha256: Option<bool>,
+    sha384: Option<bool>,
+    sha512: Option<bool>,
+    sha3_224: Option<bool>,
+    sha3_256: Option<bool>,
+    sha3_384: Option<bool>,
+    sha3_512: Option<bool>,
+    keccak224: Option<bool>,
+    keccak256: Option<bool>,
+    keccak384: Option<bool>,
+    keccak512: Option<bool>,
+    blake2s256: Option<bool>,
+    blake2b512: Option<bool>,
+    belt_hash: Option<bool>,
+    whirlpool: Option<bool>,
+    tiger: Option<bool>,
+    tiger2: Option<bool>,
+    streebog256: Option<bool>,
+    streebog512: Option<bool>,
+    ripemd128: Option<bool>,
+    ripemd160: Option<bool>,
+    ripemd256: Option<bool>,
+    ripemd320: Option<bool>,
+    fsb160: Option<bool>,
+    fsb224: Option<bool>,
+    fsb256: Option<bool>,
+    fsb384: Option<bool>,
+    fsb512: Option<bool>,
+    sm3: Option<bool>,
+    gost94_cryptopro: Option<bool>,
+    gost94_test: Option<bool>,
+    gost94_ua: Option<bool>,
+    gost94_s2015: Option<bool>,
+    groestl224: Option<bool>,
+    groestl256: Option<bool>,
+    groestl384: Option<bool>,
+    groestl512: Option<bool>,
+    shabal192: Option<bool>,
+    shabal224: Option<bool>,
+    shabal256: Option<bool>,
+    shabal384: Option<bool>,
+    shabal512: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -156,7 +162,7 @@ pub fn get_hashes<'a>(
     macro_rules! addhashes {
         ( $(($hash:tt, $hash_fn:tt)),* ) => {
             $(
-                if config_hashes.$hash {
+                if config_hashes.$hash.is_some() && config_hashes.$hash.unwrap() {
                     hashes
                     .lock()
                     .unwrap()

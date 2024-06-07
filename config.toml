@@ -1,7 +1,6 @@
 [database]
-# Note: only sqlite databases are currently supported! Replace `test.db` with the path to the database.
-# Databases must follow the schema in sqlite.md, however the table name can be changed.
-db_string = "sqlite://test.db"
+# `myhashes.db` can be changed if you wish.
+db_string = "sqlite://myhashes.db"
 table_name = "hashes"
 
 [hashes]
@@ -11,7 +10,7 @@ md4 = false
 md5 = true
 sha1 = true
 sha224 = false
-sha256 = false
+sha256 = true
 sha384 = false
 sha512 = false
 sha3_224 = false

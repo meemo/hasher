@@ -1,5 +1,7 @@
-# IDE config directory
+# IDE/Editor files
+.idea/
 .vscode/
+[._]*.s[a-w][a-z]
 
 # Rust build output
 debug/
@@ -7,8 +9,10 @@ target/
 
 # Hash outputs
 hashes/
+output/
 *.db*
 
 # Test files
+test/
 zero
 *.tar.gz

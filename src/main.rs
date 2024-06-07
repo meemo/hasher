@@ -1,51 +1,54 @@
 use chrono::offset::Utc;
-use std::io::Write;
-use std::time::Instant;
-use std::{path::PathBuf, process::exit};
+use std::{io::Write, time::Instant, path::PathBuf, process::exit};
 
 use clap::Parser;
 use log::{error, warn, info};
 use tokio;
 
+mod utils;
 mod configuration;
 mod hasher;
-
-macro_rules! startlogging {
-    ($config_args:ident) => {
-        env_logger::builder()
-            .format(|buf, record| {
-                writeln!(
-                    buf,
-                    "[{}][{}] {}",
-                    Utc::now().timestamp(),
-                    record.level(),
-                    record.args()
-                )
-            })
-            .filter_level($config_args.verbose.log_level_filter())
-            .init();
-    };
-}
+mod database;
 
 #[tokio::main]
 async fn main() {
     let start_time = Instant::now();
     let args = configuration::Args::parse();
 
-    startlogging!(args);
+    env_logger::builder()
+        .format(|buf, record| {
+        writeln!(
+                buf,
+                "[{}][{}] {}",
+                Utc::now().timestamp(),
+                record.level(),
+                record.args()
+            )
+        })
+        .filter_level(args.verbose.log_level_filter())
+        .init();
 
     let config = configuration::get_config(&args);
     let input_path = PathBuf::from(&args.input_path);
 
-    // Only sqlite databases are supported at the moment
-    if args.sql_out && !config.database.db_string.starts_with("sqlite") {
-        error!("Non-sqlite databases are not implemented yet!");
+    if args.sql_out {
+        if config.database.db_string.starts_with("sqlite://") {
+            database::init_database(&config.database.db_string, &config.database.table_name, args.use_wal)
+                .await
+                .expect("Failed to initialize the database!");
+        } else {
+            // Only sqlite databases are supported at the moment
+            error!("Non-sqlite databases are not supported yet!");
+            exit(1);
+        }
+    }
+
+    // Dry runs ignore sql_out and json_out options
+    if !args.dry_run && !args.sql_out && !args.json_out {
+        warn!("No output method selected! Use --sql-out or --json-out (see --help).");
         exit(1);
     }
 
-    if !args.sql_out && !args.json_out {
-        warn!("No output method selected! Hashed results will not go anywhere!");
-    }
 
     if args.stdin {
         // Hash the data provided in stdin
@@ -57,6 +60,11 @@ async fn main() {
         hasher::hash_dir(input_path.as_path(), &args, &config)
             .await
             .expect("Failure while hashing directory!");
+    }
+
+
+    if args.sql_out && args.use_wal {
+        database::close_database(&config.database.db_string).await;
     }
 
     info!("Execution took: {:.2?}.", start_time.elapsed());

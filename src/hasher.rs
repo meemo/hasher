@@ -18,6 +18,8 @@ use sqlx::{Sqlite, SqliteConnection};
 use walkdir::WalkDir;
 
 use crate::configuration::{get_hashes, Args, Config, Hashes};
+use crate::utils::Error;
+use crate::{arclock, startthread, walkthedir};
 
 // Read 1 GiB of the file at a time when dealing with large files
 const CHUNK_SIZE: usize = 512 * 1024 * 1024;
@@ -27,44 +29,6 @@ const CHUNK_SIZE: usize = 512 * 1024 * 1024;
 // Must be smaller than CHUNK_SIZE, value is currently a complete guess.
 const SEQUENTIAL_SIZE: usize = 32 * 1024 * 1024;
 
-#[derive(Debug)]
-pub enum Error {
-    IO,
-    Poison,
-    Database,
-}
-
-impl From<std::io::Error> for Error {
-    fn from(_value: std::io::Error) -> Self {
-        Error::IO
-    }
-}
-
-impl<T> From<std::sync::PoisonError<T>> for Error {
-    fn from(_value: std::sync::PoisonError<T>) -> Self {
-        Error::Poison
-    }
-}
-
-impl From<walkdir::Error> for Error {
-    fn from(_value: walkdir::Error) -> Self {
-        Error::IO
-    }
-}
-
-impl From<sqlx::Error> for Error {
-    fn from(_value: sqlx::Error) -> Self {
-        Error::Database
-    }
-}
-
-macro_rules! arclock {
-    ($self:ident) => {
-        $self.lock().unwrap()
-    };
-}
-
-#[inline(always)]
 fn open_file<'a>(file_path: &'a Path) -> Result<(BufReader<File>, usize), Error> {
     let input_file = File::open(file_path)?;
     let file_size = input_file.metadata()?.len() as usize;
@@ -73,7 +37,6 @@ fn open_file<'a>(file_path: &'a Path) -> Result<(BufReader<File>, usize), Error>
     Ok((file_reader, file_size))
 }
 
-#[inline(always)]
 fn make_buffer(file_size: usize) -> (Arc<RwLock<Vec<u8>>>, usize) {
     let buffer_size = min(file_size, CHUNK_SIZE);
     let buffer = Arc::new(RwLock::new(vec![0; buffer_size]));
@@ -100,18 +63,6 @@ fn hash_buffer_sequential(
     }
 
     Ok(())
-}
-
-macro_rules! startthread {
-    ($threads:ident, $buffer:ident, $hash_mutex:ident) => {
-        let buffer_clone = $buffer.clone();
-        let hash_clone = $hash_mutex.clone();
-
-        $threads.push(thread::spawn(move || {
-            hash_clone.lock()?.update(buffer_clone.read()?.as_slice());
-            Ok(())
-        }));
-    };
 }
 
 fn hash_buffer_threaded<'a>(
@@ -146,19 +97,15 @@ pub async fn hash_stdin<'a>(config: &Config, file_path: &'a str) -> Result<(), E
         .expect("Failed to connect to db!");
 
     let mut raw_buffer: Vec<u8> = Vec::new();
-
-    // NOTE: This is the reason stdin must be smaller than the avaliable RAM
-    // TODO: improve this section
     std::io::stdin().read_to_end(&mut raw_buffer)?;
 
     let file_size = raw_buffer.len();
     let buffer = Arc::new(RwLock::new(raw_buffer));
 
     if file_size < SEQUENTIAL_SIZE {
-        hash_buffer_sequential(&buffer, &mut hashes, config.hashes.crc32, &crc32_hasher)?;
+        hash_buffer_sequential(&buffer, &mut hashes, config.hashes.crc32.unwrap(), &crc32_hasher)?;
     } else {
-        let threads =
-            hash_buffer_threaded(&buffer, &mut hashes, config.hashes.crc32, &crc32_hasher)?;
+        let threads = hash_buffer_threaded(&buffer, &mut hashes, config.hashes.crc32.unwrap(), &crc32_hasher)?;
 
         // Wait for all threads to finish processing
         for handle in threads.into_iter() {
@@ -168,15 +115,13 @@ pub async fn hash_stdin<'a>(config: &Config, file_path: &'a str) -> Result<(), E
 
     let mut final_hashes: Vec<(&str, Vec<u8>)> = Vec::new();
 
-    info!(
-        "Successfully hashed file from stdin in {:.2?}",
-        start_time.elapsed()
-    );
+    info!("Successfully hashed file from stdin in {:.2?}", start_time.elapsed());
     info!("File name (in output): {}", file_path);
     info!("File size: {} bytes", file_size);
 
     // Get the result of each hash in a consistent format
-    if config.hashes.crc32 {
+    // CRC32 is special
+    if config.hashes.crc32.unwrap() {
         final_hashes.push((
             "crc32",
             arclock!(crc32_hasher)
@@ -230,7 +175,7 @@ pub fn hash_file<'a>(
         }
 
         if bytes_read < SEQUENTIAL_SIZE {
-            hash_buffer_sequential(&buffer, &mut hashes, config.crc32, &crc32_hasher)?;
+            hash_buffer_sequential(&buffer, &mut hashes, config.crc32.unwrap(), &crc32_hasher)?;
 
             bytes_read = file_reader.read(buffer.write()?.as_mut())?;
         } else {
@@ -239,7 +184,7 @@ pub fn hash_file<'a>(
                 buffer.write()?.resize(bytes_read, 0);
             }
 
-            let threads = hash_buffer_threaded(&buffer, &mut hashes, config.crc32, &crc32_hasher)?;
+            let threads = hash_buffer_threaded(&buffer, &mut hashes, config.crc32.unwrap(), &crc32_hasher)?;
 
             // Read the next buffer while the hashing threads are running
             let (buffer2, buffer2_size) = make_buffer(file_size);
@@ -263,7 +208,7 @@ pub fn hash_file<'a>(
     info!("File size: {} bytes", file_size);
 
     // Get the result of each hash in a consistent format
-    if config.crc32 {
+    if config.crc32.unwrap() {
         final_hashes.push((
             "crc32",
             arclock!(crc32_hasher)
@@ -321,17 +266,6 @@ fn write_hashes_json(
     Ok(())
 }
 
-macro_rules! walkthedir {
-    ($path:ident, $args:ident) => {
-        WalkDir::new($path)
-            .min_depth(0)
-            .max_depth($args.max_depth)
-            .follow_links(!$args.no_follow_symlinks)
-            .contents_first(!$args.breadth_first)
-            .sort_by_file_name()
-    };
-}
-
 async fn insert_hashes_sql(
     config: &Config,
     file_path: &Path,
@@ -376,17 +310,19 @@ pub async fn hash_dir(path_to_hash: &Path, args: &Args, config: &Config) -> Resu
         args.max_depth
     );
 
-    let mut db_conn = SqliteConnection::connect(&config.database.db_string)
-        .await
-        .expect("Failed to connect to db!");
+    let mut db_conn: Option<SqliteConnection> = None;
+    if args.sql_out {
+        db_conn = Some(SqliteConnection::connect(&config.database.db_string)
+            .await
+            .expect("Failed to open sqlite database!"));
+    }
 
     for entry in walkthedir!(path_to_hash, args) {
         if let Ok(entry_ok) = entry {
             // Only hash files, not directories
             if !entry_ok.path().is_dir() {
-                // Functionality for skipping a given number of files in the args
+                // Skipping a given number of files in the args (for interruption recovery)
                 file_count += 1;
-
                 if file_count <= args.skip_files {
                     info!(
                         "Skipping ({}/{}) file {}",
@@ -399,10 +335,16 @@ pub async fn hash_dir(path_to_hash: &Path, args: &Args, config: &Config) -> Resu
 
                 match hash_file(entry_ok.path(), &config.hashes) {
                     Ok(hashes) => {
+                        if args.dry_run {
+                            continue;
+                        }
+
                         if args.sql_out {
-                            insert_hashes_sql(config, entry_ok.path(), &hashes, &mut db_conn)
-                                .await
-                                .expect("Failed to insert hashes! This is likely a schema error.");
+                            if let Some(conn) = &mut db_conn {
+                                insert_hashes_sql(config, entry_ok.path(), &hashes, conn)
+                                    .await
+                                    .expect("Failed to insert hashes! This is likely a schema error.");
+                            }
                         }
 
                         if args.json_out {
@@ -410,20 +352,12 @@ pub async fn hash_dir(path_to_hash: &Path, args: &Args, config: &Config) -> Resu
                         }
                     }
                     Err(err) => {
-                        let path = entry_ok.path().display();
-                        match err {
-                            Error::IO => {
-                                warn!("Failed to access file at {}, skipping", path);
-                            }
-                            _ => {
-                                warn!("Unhandeled exception while hashing file at {}! (this shouldn't happen)", path);
-                            }
-                        }
+                        warn!("Failed to access file at {}, skipping. {:?}", entry_ok.path().display(), err);
                     }
                 }
             }
         } else {
-            warn!("Unexpected error accessing an entry! (this shouldn't happen)");
+            warn!("Unexpected error accessing a walkdir entry (this shouldn't happen)!");
         }
     }
 
