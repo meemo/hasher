@@ -1,7 +1,8 @@
 # hasher
 
-hasher is a program that can do multithreaded simultaneously hashing of files with up to 48 hashing algorithms while
-only reading the file once. This is great for making use of
+hasher is a program that can do multithreaded simultaneous hashing of files with up to 48 hashing algorithms while
+only reading the file once. This means that in almost all cases the limiting factor in performance will be IO, and you
+won't have to waste time reading the same data multiple times if you need multiple hashing algorithms.
 
 Hashes are able to be output in 3 locations: stdout (with `-v` or higher), SQLite (with `--sql-out`), and JSON
 (`--json-out`).
@@ -19,7 +20,7 @@ cargo build -r
 ```
 
 Go ahead and get yourself a drink while this is running, it will take a while. After this is complete your binary will
-be located at `target/release/hasher` and can be moved wherever you desire (or not, your choice).
+be located at `target/release/hasher` and can be moved wherever you desire, or leave it place and use `cargo run -r`.
 
 ### musl libc Builds
 
@@ -36,6 +37,19 @@ cargo build -r --target=x86_64-unknown-linux-musl
 ```
 
 This will create a release build in the same location as normal builds but now it will not use glibc.
+
+## Config
+
+hasher relies on config files to direct its operation. [`config.toml`](config.toml) is an example of a valid config
+file, and is what it will look for unless another config path is specified with `-c`.
+
+The database section is currently required, even if you only use json out. Those config entries will be used unless
+--sql-out is specified.
+
+The hashes section lists every single possible hash that can be calculated, with crc32, md5, sha1, and sha256 enabled by
+default. You can remove lines of hashes to shorten the list, if the hash isn't in the list it will be disabled. If you
+are using `--json-out` then sha256 is required, but otherwise you can pick and choose the hashes you want as long as you
+have at least 1.
 
 ## Usage
 
@@ -91,8 +105,8 @@ while accelerating the performance with WAL (write ahead log). Run this in the r
 ./hasher -v --sql-out --use-wal -i dev/
 ```
 
-Assuming the default `config.toml` is used, this will hash everything to the database `myhashes.db` in the current
-working directory.
+Assuming the default `config.toml` is in the current working directory, this will hash everything to the database
+`myhashes.db` in the current working directory.
 
 ### Config File
 
