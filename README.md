@@ -10,7 +10,7 @@ Hashes are able to be output in 3 locations: stdout (with `-v` or higher), SQLit
 ## Building
 
 hasher requires a fairly modern version of Rust, preferably the latest stable release. Install it using the instructions
-located[here](https://www.rust-lang.org/tools/install). Releases are currently not provided because of the reliance on
+located [here](https://www.rust-lang.org/tools/install). Releases are currently not provided because of the reliance on
 the config file. I plan to make this not an issue in a future release.
 
 To build, run the following at the root of the repository:
