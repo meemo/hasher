@@ -1,7 +1,6 @@
 use std::io;
 use std::sync::PoisonError;
 
-use walkdir;
 use sqlx;
 
 #[derive(Debug)]
@@ -35,6 +34,15 @@ impl From<sqlx::Error> for Error {
     }
 }
 
+impl From<hasher::Error> for Error {
+    fn from(_value: hasher::Error) -> Self {
+        match _value {
+            hasher::Error::Io(_value) => Error::IO,
+            hasher::Error::ThreadPanic => Error::Poison,
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! arclock {
     ($self:ident) => {
@@ -58,7 +66,7 @@ macro_rules! startthread {
 #[macro_export]
 macro_rules! walkthedir {
     ($path:ident, $args:ident) => {
-        WalkDir::new($path)
+        walkdir::WalkDir::new($path)
             .min_depth(0)
             .max_depth($args.max_depth)
             .follow_links(!$args.no_follow_symlinks)

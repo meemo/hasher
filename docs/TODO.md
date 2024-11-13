@@ -1,0 +1,30 @@
+# TODO
+
+- Handle filesystem errors better, i.e. windows corrupt files
+  - Default to fatal when they appear, have cli option to ignore them
+- Add rclone-like CLI interface for multiple difference major options, i.e. `hasher {option}` with these options:
+  - `hash`
+    - Identical functionality to now
+  - `validate`
+    - Read from the database and check the files at the path
+    - Output conflicts as json to console? Unsure what will be the best way to notify about this
+  - `copy`
+    - Copy files from source to destination, hash along the way
+    - Have option to store source path instead of destination path
+- Config and usage changes
+  - Move `--use-wal` to config.toml, default to on
+  - Probably move some cli options into config.toml
+    - Depth/breath first
+    - Others TBD
+  - Make it so no config.toml is required to use all default settings
+- Remove json out
+  - Add json-formatted stdout output instead
+    - Make sure verbose output lines aren't a problem
+- Add a lockfile for directories currently being hashed
+  - Ensuring 2 instances of hasher don't hash the same major directory, don't worry about lower directories
+  - Make sure there's both linux and windows support
+- EVENTUALLY add XOFs
+  - Difficult because no simple digest interface thing that allows pasting in of functions like before
+- Create actual documentation, rustdocs and expand companion md files
+- Add tests
+- Add CI integration for tests and codestyle
