@@ -1,10 +1,34 @@
 use std::io::{BufReader, Read};
 use std::path::Path;
 use std::fs::File;
+use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 
 use digest::{Digest, DynDigest};
+
+#[derive(Debug)]
+pub enum Error {
+    Io(std::io::Error),
+    ThreadPanic,
+    FileChanged,
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Io(e)
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Io(e) => write!(f, "IO error: {}", e),
+            Error::ThreadPanic => write!(f, "Thread panic occurred"),
+            Error::FileChanged => write!(f, "File was modified during reading"),
+        }
+    }
+}
 
 pub struct HashConfig {
     pub crc32: bool,
@@ -55,18 +79,6 @@ pub struct HashConfig {
     pub shabal256: bool,
     pub shabal384: bool,
     pub shabal512: bool,
-}
-
-#[derive(Debug)]
-pub enum Error {
-    Io(std::io::Error),
-    ThreadPanic,
-}
-
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Error::Io(e)
-    }
 }
 
 pub type HashResult = Vec<(&'static str, Vec<u8>)>;
@@ -245,11 +257,21 @@ impl Hasher {
     pub fn hash_file(&mut self, path: &Path) -> Result<(usize, HashResult), Error> {
         let (mut reader, file_size) = Hasher::open_file(path)?;
         let mut buffer = vec![0; CHUNK_SIZE.min(file_size)];
+        let start_metadata = path.metadata()?;
 
         loop {
-            let bytes_read = reader.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
+            let bytes_read = match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(Error::Io(e)),
+            };
+
+            // Check if file changed during read
+            if let Ok(current_metadata) = path.metadata() {
+                if current_metadata.modified()? != start_metadata.modified()? {
+                    return Err(Error::FileChanged);
+                }
             }
 
             buffer.truncate(bytes_read);

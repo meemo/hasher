@@ -1,8 +1,10 @@
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::Path;
+use std::time::Duration;
+
 use sqlx::{query_builder::QueryBuilder, Connection, SqliteConnection};
-use log::{info, warn};
+use log::{info, warn, error};
 use serde_json::{Map, Value};
 
 use crate::configuration::{Args, Config};
@@ -10,13 +12,16 @@ use crate::utils::Error;
 use crate::walkthedir;
 use hasher::{Hasher, HashConfig};
 
-async fn insert_hashes_sql(
+const MAX_DB_RETRIES: u32 = 3;
+const DB_RETRY_DELAY: Duration = Duration::from_millis(100);
+
+async fn insert_hashes_sql_inner(
     config: &Config,
     file_path: &Path,
     size: usize,
-    hashes: Vec<(&str, Vec<u8>)>,
+    hashes: &[(&str, Vec<u8>)],
     db_conn: &mut SqliteConnection,
-) -> Result<(), Error> {
+ ) -> Result<(), Error> {
     let mut query_builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new("INSERT INTO ");
     query_builder.push(config.database.table_name.clone());
 
@@ -24,7 +29,7 @@ async fn insert_hashes_sql(
     sep.push_unseparated(" (");
     sep.push("file_path");
     sep.push("file_size");
-    for (hash_name, _) in &hashes {
+    for (hash_name, _) in hashes {
         sep.push(*hash_name);
     }
 
@@ -32,7 +37,7 @@ async fn insert_hashes_sql(
     sep.push_unseparated(") VALUES (");
     sep.push_bind(file_path.display().to_string());
     sep.push_bind(size as f64);
-    for (_, hash_data) in &hashes {
+    for (_, hash_data) in hashes {
         sep.push_bind(hash_data.as_slice());
     }
     sep.push_unseparated(");");
@@ -41,6 +46,27 @@ async fn insert_hashes_sql(
     query.execute(db_conn).await?;
 
     Ok(())
+ }
+
+async fn insert_hashes_sql(
+    config: &Config,
+    file_path: &Path,
+    size: usize,
+    hashes: Vec<(&str, Vec<u8>)>,
+    db_conn: &mut SqliteConnection,
+) -> Result<(), Error> {
+    let mut retries = 0;
+    loop {
+        match insert_hashes_sql_inner(config, file_path, size, &hashes, db_conn).await {
+            Ok(()) => return Ok(()),
+            Err(Error::DbLocked) if retries < MAX_DB_RETRIES => {
+                retries += 1;
+                tokio::time::sleep(DB_RETRY_DELAY).await;
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 fn write_hashes_json(
@@ -129,6 +155,48 @@ fn create_hash_config(config: &Config) -> HashConfig {
     }
 }
 
+async fn handle_output(
+    file_path: &Path,
+    file_size: usize,
+    hashes: Vec<(&str, Vec<u8>)>,
+    config: &Config,
+    args: &Args,
+    db_conn: &mut Option<SqliteConnection>
+) -> Result<(), Error> {
+    if args.dry_run {
+        return Ok(());
+    }
+
+    if let Some(conn) = db_conn {
+        if let Err(e) = insert_hashes_sql(config, file_path, file_size, hashes.clone(), conn).await {
+            let err_msg = format!("Database error for {}: {}", file_path.display(), e);
+            if !args.continue_on_error {
+                return Err(e);
+            }
+            error!("{}", err_msg);
+        }
+    }
+
+    if args.json_out {
+        if let Err(e) = write_hashes_json(args, file_path, file_size, hashes) {
+            let err_msg = format!("JSON write error for {}: {}", file_path.display(), e);
+            if !args.continue_on_error {
+                return Err(e);
+            }
+            error!("{}", err_msg);
+        }
+    }
+
+    Ok(())
+}
+
+fn log_hash_results(file_path: &Path, hashes: &[(&str, Vec<u8>)]) {
+    info!("Successfully hashed {}", file_path.display());
+    for (name, hash) in hashes {
+        info!("{}: {}", name, hex::encode(hash));
+    }
+}
+
 pub async fn process_file(
     file_path: &Path,
     config: &Config,
@@ -139,28 +207,17 @@ pub async fn process_file(
 
     match hasher.hash_file(file_path) {
         Ok((file_size, hashes)) => {
-            info!("Successfully hashed {}", file_path.display());
-            for (name, hash) in &hashes {
-                info!("{}: {}", name, hex::encode(hash));
-            }
-
-            if args.dry_run {
-                return Ok(());
-            }
-
-            if let Some(conn) = db_conn {
-                insert_hashes_sql(config, file_path, file_size, hashes.clone(), conn).await?;
-            }
-
-            if args.json_out {
-                write_hashes_json(args, file_path, file_size, hashes)?;
-            }
-
-            Ok(())
+            log_hash_results(file_path, &hashes);
+            handle_output(file_path, file_size, hashes, config, args, db_conn).await
         }
         Err(e) => {
-            warn!("Failed to hash {}: {:?}", file_path.display(), e);
-            Err(e.into())
+            let err_msg = format!("Failed to hash {}: {}", file_path.display(), e);
+            if args.continue_on_error {
+                error!("{}", err_msg);
+                Ok(())
+            } else {
+                Err(Error::from(e))
+            }
         }
     }
 }

@@ -8,34 +8,38 @@ use serde_derive::Deserialize;
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// The path to hash the files inside
-    #[arg(short, long, default_value_t = String::from("."))]
+    #[arg(short = 'i', long, default_value_t = String::from("."))]
     pub input_path: String,
 
     #[clap(flatten)]
     pub verbose: Verbosity<WarnLevel>,
 
-    /// Write hashes to JSON
-    #[arg(long, default_value_t = false)]
-    pub json_out: bool,
+    /// By default, things like IO and database errors will end execution when they happen
+    #[arg(short = 'e', long, default_value_t = false)]
+    pub continue_on_error: bool,
 
     /// Write hashes to the SQLite database in the config
-    #[arg(long, default_value_t = false)]
+    #[arg(short = 's', long, default_value_t = false)]
     pub sql_out: bool,
 
+    /// Write hashes to JSON
+    #[arg(short = 'j', long, default_value_t = false)]
+    pub json_out: bool,
+
     /// Enable WAL mode in the SQLite database while running
-    #[arg(long, default_value_t = false)]
+    #[arg(short = 'w', long, default_value_t = false)]
     pub use_wal: bool,
 
     /// The path to output {path}/{sha256 of file}.json
-    #[arg(short, long, default_value_t = String::from("./hashes"))]
+    #[arg(long, default_value_t = String::from("./hashes"))]
     pub json_output_path: String,
 
     /// The location of the config file
-    #[arg(short, long, default_value_t = String::from("./config.toml"))]
+    #[arg(short = 'c', long, default_value_t = String::from("./config.toml"))]
     pub config_file: String,
 
     /// Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output
-    #[arg(long, default_value_t = false)]
+    #[arg(short = 'n', long, default_value_t = false)]
     pub stdin: bool,
 
     /// Maximum number of subdirectories to descend when recursing directories
@@ -52,7 +56,7 @@ pub struct Args {
     pub no_follow_symlinks: bool,
 
     /// Hash directories breadth first instead of depth first
-    #[arg(long, default_value_t = false)]
+    #[arg(short = 'b', long, default_value_t = false)]
     pub breadth_first: bool,
 
     /// Does not write hashes anywhere but stdout. Useful for benchmarking and if you hands are cold.

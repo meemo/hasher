@@ -68,17 +68,19 @@ Options:
           Increase logging verbosity
   -q, --quiet...
           Decrease logging verbosity
-      --json-out
-          Write hashes to JSON
-      --sql-out
+  -e, --continue-on-error
+          By default things like IO and database errors will end execution when encountered
+  -s, --sql-out
           Write hashes to the SQLite database in the config
-      --use-wal
+  -j, --json-out
+          Write hashes to JSON
+  -w, --use-wal
           Enable WAL mode in the SQLite database while running
-  -j, --json-output-path <JSON_OUTPUT_PATH>
+      --json-output-path <JSON_OUTPUT_PATH>
           The path to output {path}/{sha256 of file}.json [default: ./hashes]
   -c, --config-file <CONFIG_FILE>
           The location of the config file [default: ./config.toml]
-      --stdin
+  -n, --stdin
           Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output
       --max-depth <MAX_DEPTH>
           Maximum number of subdirectories to descend when recursing directories [default: 20]
@@ -86,7 +88,7 @@ Options:
           Number of files (inclusive) to skip before beginning to hash a directory. Meant for resuming interrupted hashing runs, don't use this normally [default: 0]
       --no-follow-symlinks
           DON'T follow symlinks. Infinite loops are possible if this is off and there are bad symlinks
-      --breadth-first
+  -b, --breadth-first
           Hash directories breadth first instead of depth first
       --dry-run
           Does not write hashes anywhere but stdout. Useful for benchmarking and if you hands are cold

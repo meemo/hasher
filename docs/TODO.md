@@ -28,3 +28,4 @@
 - Create actual documentation, rustdocs and expand companion md files
 - Add tests
 - Add CI integration for tests and codestyle
+- Add postgresql support?

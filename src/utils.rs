@@ -1,44 +1,75 @@
 use std::io;
-use std::sync::PoisonError;
+use std::fmt;
 
 use sqlx;
 
 #[derive(Debug)]
 pub enum Error {
-    IO,
-    Poison,
-    Database,
+    IO(io::Error),
+    ThreadPanic,
+    Database(sqlx::Error),
+    FileChanged,
+    DiskSpace,
+    DbLocked,
 }
 
 impl From<io::Error> for Error {
-    fn from(_value: io::Error) -> Self {
-        Error::IO
-    }
-}
-
-impl<T> From<PoisonError<T>> for Error {
-    fn from(_value: PoisonError<T>) -> Self {
-        Error::Poison
-    }
-}
-
-impl From<walkdir::Error> for Error {
-    fn from(_value: walkdir::Error) -> Self {
-        Error::IO
-    }
-}
-
-impl From<sqlx::Error> for Error {
-    fn from(_value: sqlx::Error) -> Self {
-        Error::Database
+    fn from(e: io::Error) -> Self {
+        match e.kind() {
+            io::ErrorKind::OutOfMemory => Error::DiskSpace,
+            _ => Error::IO(e)
+        }
     }
 }
 
 impl From<hasher::Error> for Error {
-    fn from(_value: hasher::Error) -> Self {
-        match _value {
-            hasher::Error::Io(_value) => Error::IO,
-            hasher::Error::ThreadPanic => Error::Poison,
+    fn from(e: hasher::Error) -> Self {
+        match e {
+            hasher::Error::Io(e) => Self::from(e),
+            hasher::Error::ThreadPanic => Error::ThreadPanic,
+            hasher::Error::FileChanged => Error::FileChanged,
+        }
+    }
+}
+
+impl From<sqlx::Error> for Error {
+    fn from(e: sqlx::Error) -> Self {
+        match e {
+            sqlx::Error::Database(e) if e.code().as_deref() == Some("SQLITE_BUSY") => Error::DbLocked,
+            _ => Error::Database(e)
+        }
+    }
+}
+
+impl From<walkdir::Error> for Error {
+    fn from(e: walkdir::Error) -> Self {
+        if let Some(inner) = e.io_error() {
+            Error::IO(io::Error::new(inner.kind(), inner.to_string()))
+        } else {
+            Error::IO(io::Error::new(io::ErrorKind::Other, e))
+        }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::IO(e) => write!(f, "IO error: {}", e),
+            Error::ThreadPanic => write!(f, "Thread panic occurred"),
+            Error::Database(e) => write!(f, "Database error: {}", e),
+            Error::FileChanged => write!(f, "File was modified during reading"),
+            Error::DiskSpace => write!(f, "Out of disk space"),
+            Error::DbLocked => write!(f, "Database is locked"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::IO(e) => Some(e),
+            Error::Database(e) => Some(e),
+            _ => None,
         }
     }
 }
