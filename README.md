@@ -62,40 +62,22 @@ Multithreaded parallel hashing utility
 Usage: hasher [OPTIONS]
 
 Options:
-  -i, --input-path <INPUT_PATH>
-          The path to hash the files inside [default: .]
-  -v, --verbose...
-          Increase logging verbosity
-  -q, --quiet...
-          Decrease logging verbosity
-  -e, --continue-on-error
-          By default things like IO and database errors will end execution when encountered
-  -s, --sql-out
-          Write hashes to the SQLite database in the config
-  -j, --json-out
-          Write hashes to JSON
-  -w, --use-wal
-          Enable WAL mode in the SQLite database while running
-      --json-output-path <JSON_OUTPUT_PATH>
-          The path to output {path}/{sha256 of file}.json [default: ./hashes]
-  -c, --config-file <CONFIG_FILE>
-          The location of the config file [default: ./config.toml]
-  -n, --stdin
-          Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output
-      --max-depth <MAX_DEPTH>
-          Maximum number of subdirectories to descend when recursing directories [default: 20]
-      --skip-files <SKIP_FILES>
-          Number of files (inclusive) to skip before beginning to hash a directory. Meant for resuming interrupted hashing runs, don't use this normally [default: 0]
-      --no-follow-symlinks
-          DON'T follow symlinks. Infinite loops are possible if this is off and there are bad symlinks
-  -b, --breadth-first
-          Hash directories breadth first instead of depth first
-      --dry-run
-          Does not write hashes anywhere but stdout. Useful for benchmarking and if you hands are cold
-  -h, --help
-          Print help
-  -V, --version
-          Print version
+  -i, --input-path <INPUT_PATH>    The path to hash the files inside [default: .]
+  -v, --verbose...                 Increase logging verbosity
+  -q, --quiet...                   Decrease logging verbosity
+  -e, --continue-on-error          By default, things like IO and database errors will end execution when they happen
+  -s, --sql-out                    Write hashes to the SQLite database in the config
+  -j, --json-out                   Write hashes to stdout with JSON formatting
+  -p, --pretty-json                Pretty print JSON output
+  -w, --use-wal                    Enable WAL mode in the SQLite database while running
+  -c, --config-file <CONFIG_FILE>  The location of the config file [default: ./config.toml]
+  -n, --stdin                      Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output
+      --max-depth <MAX_DEPTH>      Maximum number of subdirectories to descend when recursing directories [default: 20]
+      --no-follow-symlinks         DON'T follow symlinks. Infinite loops are possible if this is off and there are bad symlinks
+  -b, --breadth-first              Hash directories breadth first instead of depth first
+      --dry-run                    Does not write hashes anywhere but stdout. Useful for benchmarking and if you hands are cold
+  -h, --help                       Print help
+  -V, --version                    Print version
 ```
 
 ### Example Usage

@@ -1,7 +1,5 @@
 # TODO
 
-- Handle filesystem errors better, i.e. windows corrupt files
-  - Default to fatal when they appear, have cli option to ignore them
 - Add rclone-like CLI interface for multiple difference major options, i.e. `hasher {option}` with these options:
   - `hash`
     - Identical functionality to now
@@ -12,11 +10,11 @@
     - Copy files from source to destination, hash along the way
     - Have option to store source path instead of destination path
 - Config and usage changes
-  - Move `--use-wal` to config.toml, default to on
-  - Probably move some cli options into config.toml
-    - Depth/breath first
+  - Move `--use-wal` to config.toml under the database section, default to on
+  - Add a general section to config.toml, move these in there:
+    - Breadth first
     - Others TBD
-  - Make it so no config.toml is required to use all default settings
+  - Make it so no config.toml is required to use all default settings according to the repo's config.toml
 - Remove json out
   - Add json-formatted stdout output instead
     - Make sure verbose output lines aren't a problem

@@ -4,6 +4,8 @@ use clap::Parser;
 use clap_verbosity_flag::{Verbosity, WarnLevel};
 use serde_derive::Deserialize;
 
+use hasher::HashConfig;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -22,17 +24,17 @@ pub struct Args {
     #[arg(short = 's', long, default_value_t = false)]
     pub sql_out: bool,
 
-    /// Write hashes to JSON
+    /// Write hashes to stdout with JSON formatting
     #[arg(short = 'j', long, default_value_t = false)]
     pub json_out: bool,
+
+    /// Pretty print JSON output
+    #[arg(short = 'p', long, default_value_t = false)]
+    pub pretty_json: bool,
 
     /// Enable WAL mode in the SQLite database while running
     #[arg(short = 'w', long, default_value_t = false)]
     pub use_wal: bool,
-
-    /// The path to output {path}/{sha256 of file}.json
-    #[arg(long, default_value_t = String::from("./hashes"))]
-    pub json_output_path: String,
 
     /// The location of the config file
     #[arg(short = 'c', long, default_value_t = String::from("./config.toml"))]
@@ -45,11 +47,6 @@ pub struct Args {
     /// Maximum number of subdirectories to descend when recursing directories
     #[arg(long, default_value_t = 20)]
     pub max_depth: usize,
-
-    /// Number of files (inclusive) to skip before beginning to hash a directory.
-    /// Meant for resuming interrupted hashing runs, don't use this normally.
-    #[arg(long, default_value_t = 0)]
-    pub skip_files: usize,
 
     /// DON'T follow symlinks. Infinite loops are possible if this is off and there are bad symlinks.
     #[arg(long, default_value_t = false)]
@@ -135,5 +132,60 @@ pub fn get_config(config_args: &Args) -> Config {
         return config;
     } else {
         panic!("Failed to read config file at {}!", config_args.config_file);
+    }
+}
+
+impl From<&Hashes> for HashConfig {
+    fn from(hashes: &Hashes) -> Self {
+        Self {
+            crc32: hashes.crc32.unwrap_or(false),
+            md2: hashes.md2.unwrap_or(false),
+            md4: hashes.md4.unwrap_or(false),
+            md5: hashes.md5.unwrap_or(false),
+            sha1: hashes.sha1.unwrap_or(false),
+            sha224: hashes.sha224.unwrap_or(false),
+            sha256: hashes.sha256.unwrap_or(false),
+            sha384: hashes.sha384.unwrap_or(false),
+            sha512: hashes.sha512.unwrap_or(false),
+            sha3_224: hashes.sha3_224.unwrap_or(false),
+            sha3_256: hashes.sha3_256.unwrap_or(false),
+            sha3_384: hashes.sha3_384.unwrap_or(false),
+            sha3_512: hashes.sha3_512.unwrap_or(false),
+            keccak224: hashes.keccak224.unwrap_or(false),
+            keccak256: hashes.keccak256.unwrap_or(false),
+            keccak384: hashes.keccak384.unwrap_or(false),
+            keccak512: hashes.keccak512.unwrap_or(false),
+            blake2s256: hashes.blake2s256.unwrap_or(false),
+            blake2b512: hashes.blake2b512.unwrap_or(false),
+            belt_hash: hashes.belt_hash.unwrap_or(false),
+            whirlpool: hashes.whirlpool.unwrap_or(false),
+            tiger: hashes.tiger.unwrap_or(false),
+            tiger2: hashes.tiger2.unwrap_or(false),
+            streebog256: hashes.streebog256.unwrap_or(false),
+            streebog512: hashes.streebog512.unwrap_or(false),
+            ripemd128: hashes.ripemd128.unwrap_or(false),
+            ripemd160: hashes.ripemd160.unwrap_or(false),
+            ripemd256: hashes.ripemd256.unwrap_or(false),
+            ripemd320: hashes.ripemd320.unwrap_or(false),
+            fsb160: hashes.fsb160.unwrap_or(false),
+            fsb224: hashes.fsb224.unwrap_or(false),
+            fsb256: hashes.fsb256.unwrap_or(false),
+            fsb384: hashes.fsb384.unwrap_or(false),
+            fsb512: hashes.fsb512.unwrap_or(false),
+            sm3: hashes.sm3.unwrap_or(false),
+            gost94_cryptopro: hashes.gost94_cryptopro.unwrap_or(false),
+            gost94_test: hashes.gost94_test.unwrap_or(false),
+            gost94_ua: hashes.gost94_ua.unwrap_or(false),
+            gost94_s2015: hashes.gost94_s2015.unwrap_or(false),
+            groestl224: hashes.groestl224.unwrap_or(false),
+            groestl256: hashes.groestl256.unwrap_or(false),
+            groestl384: hashes.groestl384.unwrap_or(false),
+            groestl512: hashes.groestl512.unwrap_or(false),
+            shabal192: hashes.shabal192.unwrap_or(false),
+            shabal224: hashes.shabal224.unwrap_or(false),
+            shabal256: hashes.shabal256.unwrap_or(false),
+            shabal384: hashes.shabal384.unwrap_or(false),
+            shabal512: hashes.shabal512.unwrap_or(false),
+        }
     }
 }
