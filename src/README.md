@@ -2,6 +2,8 @@
 
 ## Files
 
+- [`configuration/`](configuration/)
+  - Each command has its own file for its code in here. execute() at the bottom is their entrypoints.
 - [`lib.rs`](lib.rs)
   - Code for hasher as a library, where the majority of the special logic is located
 - [`main.rs`](main.rs)

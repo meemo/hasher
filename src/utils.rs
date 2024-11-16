@@ -11,6 +11,7 @@ pub enum Error {
     FileChanged,
     DiskSpace,
     DbLocked,
+    Config(String),
 }
 
 impl From<io::Error> for Error {
@@ -28,6 +29,7 @@ impl From<hasher::Error> for Error {
             hasher::Error::Io(e) => Self::from(e),
             hasher::Error::ThreadPanic => Error::ThreadPanic,
             hasher::Error::FileChanged => Error::FileChanged,
+            hasher::Error::InvalidInput(msg) => Error::Config(msg.to_string()),
         }
     }
 }
@@ -60,6 +62,7 @@ impl fmt::Display for Error {
             Error::FileChanged => write!(f, "File was modified during reading"),
             Error::DiskSpace => write!(f, "Out of disk space"),
             Error::DbLocked => write!(f, "Database is locked"),
+            Error::Config(e) => write!(f, "Configuration error: {}", e),
         }
     }
 }
@@ -96,7 +99,7 @@ macro_rules! startthread {
 
 #[macro_export]
 macro_rules! walkthedir {
-    ($path:ident, $args:ident) => {
+    ($path:expr, $args:expr) => {
         walkdir::WalkDir::new($path)
             .min_depth(0)
             .max_depth($args.max_depth)

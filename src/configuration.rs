@@ -1,64 +1,100 @@
 use std::fs;
+use std::path::PathBuf;
 
 use clap::Parser;
 use clap_verbosity_flag::{Verbosity, WarnLevel};
 use serde_derive::Deserialize;
 
 use hasher::HashConfig;
+use crate::utils::Error;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-pub struct Args {
-    /// The path to hash the files inside
-    #[arg(short = 'i', long, default_value_t = String::from("."))]
-    pub input_path: String,
+pub enum HasherCommand {
+    /// Hash files in a directory
+    Hash(HasherHashArgs),
+    /// Copy files while hashing them
+    Copy(HasherCopyArgs),
+    /// Verify files against stored hashes
+    Verify(HasherVerifyArgs),
+}
 
+#[derive(Parser, Debug)]
+pub struct HasherHashArgs {
+    /// Directory to hash
+    pub source: Option<PathBuf>,
+
+    #[clap(flatten)]
+    pub hash_options: HasherOptions,
+}
+
+#[derive(Parser, Debug)]
+pub struct HasherCopyArgs {
+    /// Source directory
+    pub source: PathBuf,
+    /// Destination directory
+    pub destination: PathBuf,
+
+    #[clap(flatten)]
+    pub hash_options: HasherOptions,
+}
+
+#[derive(Parser, Debug)]
+pub struct HasherVerifyArgs {
+    /// Directory to verify
+    pub source: PathBuf,
+
+    #[clap(flatten)]
+    pub hash_options: HasherOptions,
+
+    /// Report only mismatches
+    #[arg(short = 'm', long)]
+    pub mismatches_only: bool,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct HasherOptions {
     #[clap(flatten)]
     pub verbose: Verbosity<WarnLevel>,
 
-    /// By default, things like IO and database errors will end execution when they happen
-    #[arg(short = 'e', long, default_value_t = false)]
+    #[arg(short = 'e', long)]
     pub continue_on_error: bool,
 
-    /// Write hashes to the SQLite database in the config
-    #[arg(short = 's', long, default_value_t = false)]
+    #[arg(short = 's', long)]
     pub sql_out: bool,
 
-    /// Write hashes to stdout with JSON formatting
-    #[arg(short = 'j', long, default_value_t = false)]
+    #[arg(short = 'j', long)]
     pub json_out: bool,
 
-    /// Pretty print JSON output
-    #[arg(short = 'p', long, default_value_t = false)]
+    #[arg(short = 'p', long)]
     pub pretty_json: bool,
 
-    /// Enable WAL mode in the SQLite database while running
-    #[arg(short = 'w', long, default_value_t = false)]
+    #[arg(short = 'w', long)]
     pub use_wal: bool,
 
-    /// The location of the config file
-    #[arg(short = 'c', long, default_value_t = String::from("./config.toml"))]
-    pub config_file: String,
+    #[arg(short = 'c', long, default_value = "./config.toml")]
+    pub config_file: PathBuf,
 
-    /// Reads file contents from stdin instead of any paths. --input-path becomes the path given in the output
-    #[arg(short = 'n', long, default_value_t = false)]
+    #[arg(short = 'n', long)]
     pub stdin: bool,
 
-    /// Maximum number of subdirectories to descend when recursing directories
     #[arg(long, default_value_t = 20)]
     pub max_depth: usize,
 
-    /// DON'T follow symlinks. Infinite loops are possible if this is off and there are bad symlinks.
-    #[arg(long, default_value_t = false)]
+    #[arg(long)]
     pub no_follow_symlinks: bool,
 
-    /// Hash directories breadth first instead of depth first
-    #[arg(short = 'b', long, default_value_t = false)]
+    #[arg(short = 'b', long)]
     pub breadth_first: bool,
 
-    /// Does not write hashes anywhere but stdout. Useful for benchmarking and if you hands are cold.
-    #[arg(long, default_value_t = false)]
+    #[arg(long)]
     pub dry_run: bool,
+}
+
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+pub struct HasherArgs {
+    #[command(subcommand)]
+    pub command: HasherCommand,
 }
 
 #[derive(Deserialize)]
@@ -125,14 +161,12 @@ pub struct Config {
     pub hashes: Hashes,
 }
 
-pub fn get_config(config_args: &Args) -> Config {
-    if let Ok(config_str) = fs::read_to_string(&config_args.config_file) {
-        let config: Config =
-            toml::from_str(&config_str).expect("Fatal error when reading config file contents!");
-        return config;
-    } else {
-        panic!("Failed to read config file at {}!", config_args.config_file);
-    }
+pub fn get_config(options: &HasherOptions) -> Result<Config, Error> {
+    let config_str = fs::read_to_string(&options.config_file)
+        .map_err(|e| Error::Config(format!("Failed to read config file: {}", e)))?;
+
+    toml::from_str(&config_str)
+        .map_err(|e| Error::Config(format!("Invalid config file format: {}", e)))
 }
 
 impl From<&Hashes> for HashConfig {

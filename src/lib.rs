@@ -12,6 +12,7 @@ pub enum Error {
     Io(std::io::Error),
     ThreadPanic,
     FileChanged,
+    InvalidInput(&'static str),
 }
 
 impl From<std::io::Error> for Error {
@@ -26,6 +27,7 @@ impl fmt::Display for Error {
             Error::Io(e) => write!(f, "IO error: {}", e),
             Error::ThreadPanic => write!(f, "Thread panic occurred"),
             Error::FileChanged => write!(f, "File was modified during reading"),
+            Error::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
         }
     }
 }
@@ -83,8 +85,9 @@ pub struct HashConfig {
 
 pub type HashResult = Vec<(&'static str, Vec<u8>)>;
 
-const CHUNK_SIZE: usize = 512 * 1024 * 1024;
-const SEQUENTIAL_SIZE: usize = 32 * 1024 * 1024;
+const CHUNK_SIZE: usize = 512 * 1024 * 1024;  // 512 MiB
+const SEQUENTIAL_SIZE: usize = 32 * 1024 * 1024;  // 32 MiB
+const MAX_FILE_SIZE: usize = usize::MAX;
 
 pub struct Hasher {
     hashes: Vec<(&'static str, Arc<Mutex<Box<dyn DynDigest + Send>>>)>,
@@ -94,11 +97,7 @@ pub struct Hasher {
 impl Hasher {
     pub fn new(config: HashConfig) -> Self {
         let mut hashes = Vec::new();
-        let crc32_hasher = if config.crc32 {
-            Some(Arc::new(Mutex::new(crc32fast::Hasher::new())))
-        } else {
-            None
-        };
+        let crc32_hasher = config.crc32.then(|| Arc::new(Mutex::new(crc32fast::Hasher::new())));
 
         macro_rules! init_hash {
             ($($name:ident, $type:ty),*) => {
@@ -170,46 +169,65 @@ impl Hasher {
     }
 
     fn finalize_hashes(&mut self) -> Result<HashResult, Error> {
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(self.hashes.len() + self.crc32_hasher.is_some() as usize);
 
         if let Some(crc32) = &self.crc32_hasher {
+            // Convert from native endian (what crc32fast returns) to little endian (what we want to store)
             results.push((
                 "crc32",
-                crc32.lock().unwrap().clone().finalize().to_be_bytes().to_vec()
+                crc32.lock().map_err(|_| Error::ThreadPanic)?.clone().finalize().to_le_bytes().to_vec()
             ));
         }
 
         for (name, hasher) in &mut self.hashes {
-            results.push((*name, hasher.lock().unwrap().finalize_reset().to_vec()));
+            results.push((*name, hasher.lock().map_err(|_| Error::ThreadPanic)?.finalize_reset().to_vec()));
         }
 
         Ok(results)
     }
 
+    fn validate_file(path: &Path) -> Result<(BufReader<File>, usize), Error> {
+        let file = File::open(path)?;
+        let metadata = file.metadata()?;
+
+        if !metadata.is_file() {
+            return Err(Error::InvalidInput("Not a regular file"));
+        }
+
+        if metadata.len() as usize > MAX_FILE_SIZE {
+            return Err(Error::InvalidInput("File too large"));
+        }
+
+        let size = metadata.len() as usize;
+        Ok((BufReader::with_capacity(CHUNK_SIZE.min(size), file), size))
+    }
+
     fn hash_buffer_sequential(&mut self, buffer: &Arc<RwLock<Vec<u8>>>) -> Result<(), Error> {
-        let buffer_guard = buffer.read().map_err(|_| Error::ThreadPanic)?;
+        let guard = buffer.read().map_err(|_| Error::ThreadPanic)?;
 
         for (_name, hasher) in &self.hashes {
             hasher.lock()
                 .map_err(|_| Error::ThreadPanic)?
-                .update(&buffer_guard);
+                .update(&guard);
         }
 
         if let Some(crc32) = &self.crc32_hasher {
             crc32.lock()
                 .map_err(|_| Error::ThreadPanic)?
-                .update(&buffer_guard);
+                .update(&guard);
         }
 
         Ok(())
     }
 
     fn hash_buffer_threaded(&mut self, buffer: &Arc<RwLock<Vec<u8>>>) -> Result<(), Error> {
-        let mut threads: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let mut threads: Vec<JoinHandle<Result<(), Error>>> = Vec::with_capacity(
+            self.hashes.len() + self.crc32_hasher.is_some() as usize
+        );
 
         for (_name, hasher) in &self.hashes {
-            let buffer = buffer.clone();
-            let hasher = hasher.clone();
+            let buffer = Arc::clone(buffer);
+            let hasher = Arc::clone(hasher);
 
             threads.push(thread::spawn(move || {
                 hasher.lock()
@@ -220,8 +238,8 @@ impl Hasher {
         }
 
         if let Some(crc32) = &self.crc32_hasher {
-            let buffer = buffer.clone();
-            let hasher = crc32.clone();
+            let buffer = Arc::clone(buffer);
+            let hasher = Arc::clone(crc32);
 
             threads.push(thread::spawn(move || {
                 hasher.lock()
@@ -238,13 +256,11 @@ impl Hasher {
         Ok(())
     }
 
-    fn open_file(path: &Path) -> Result<(BufReader<File>, usize), Error> {
-        let file = File::open(path)?;
-        let size = file.metadata()?.len() as usize;
-        Ok((BufReader::new(file), size))
-    }
-
     pub fn hash_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        if buffer.is_empty() {
+            return Ok(());
+        }
+
         let buffer_arc = Arc::new(RwLock::new(buffer.to_vec()));
 
         if buffer.len() < SEQUENTIAL_SIZE {
@@ -255,7 +271,7 @@ impl Hasher {
     }
 
     pub fn hash_file(&mut self, path: &Path) -> Result<(usize, HashResult), Error> {
-        let (mut reader, file_size) = Hasher::open_file(path)?;
+        let (mut reader, file_size) = Self::validate_file(path)?;
         let mut buffer = vec![0; CHUNK_SIZE.min(file_size)];
         let start_metadata = path.metadata()?;
 
@@ -267,7 +283,6 @@ impl Hasher {
                 Err(e) => return Err(Error::Io(e)),
             };
 
-            // Check if file changed during read
             if let Ok(current_metadata) = path.metadata() {
                 if current_metadata.modified()? != start_metadata.modified()? {
                     return Err(Error::FileChanged);
@@ -281,7 +296,6 @@ impl Hasher {
         Ok((file_size, self.finalize_hashes()?))
     }
 
-    // For single-buffer hashing convenience
     pub fn hash_single_buffer(&mut self, buffer: &[u8]) -> Result<HashResult, Error> {
         self.hash_buffer(buffer)?;
         self.finalize_hashes()

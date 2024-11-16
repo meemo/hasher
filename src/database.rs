@@ -93,12 +93,9 @@ pub async fn init_database(db_string: &str, table_name: &str, use_wal: bool) -> 
 }
 
 pub async fn close_database(db_string: &str) {
-    let mut db_conn = SqliteConnection::connect(db_string)
-        .await
-        .expect("Failed to connect to db!");
-
-    sqlx::query("PRAGMA journal_mode=DELETE")
-        .execute(&mut db_conn)
-        .await
-        .expect("Failed to disable WAL mode!");
+    if let Ok(mut db_conn) = SqliteConnection::connect(db_string).await {
+        let _ = sqlx::query("PRAGMA journal_mode=DELETE")
+            .execute(&mut db_conn)
+            .await;
+    }
 }

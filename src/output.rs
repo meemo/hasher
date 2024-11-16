@@ -6,7 +6,7 @@ use sqlx::{query_builder::QueryBuilder, Connection, SqliteConnection};
 use log::{info, error};
 use serde_json::json;
 
-use crate::configuration::{Args, Config};
+use crate::configuration::{HasherOptions, Config};
 use crate::utils::Error;
 use crate::walkthedir;
 use hasher::{Hasher, HashConfig};
@@ -87,7 +87,7 @@ fn log_hash_results(file_path: &Path, hashes: &[(&str, Vec<u8>)]) {
 async fn process_single_file(
     file_path: &Path,
     config: &Config,
-    args: &Args,
+    args: &HasherOptions,
     db_conn: &mut Option<SqliteConnection>
 ) -> Result<(), Error> {
     let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
@@ -148,7 +148,7 @@ pub async fn process_stdin(
 
 pub async fn process_directory(
     path_to_hash: &Path,
-    args: &Args,
+    args: &HasherOptions,
     config: &Config
 ) -> Result<(), Error> {
     let mut db_conn = if args.sql_out {
