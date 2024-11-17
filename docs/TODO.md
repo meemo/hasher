@@ -10,7 +10,7 @@
     - Copy files from source to destination, hash along the way
     - Have option to store source path instead of destination path
   - `./hasher download {options} {url OR path to file with newline-separated URLs} {destination directory}`
-    - Downloads the files to the given destination dir
+    - Downloads the files to the given destination dir while hashing it in the specified way
 - Config and usage changes
   - Move `--use-wal` to config.toml under the database section, default to on
   - Add a general section to config.toml, move these in there:

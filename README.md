@@ -9,9 +9,10 @@ won't have to waste time reading the same data multiple times if you need multip
 hasher has three main commands:
 
 ```shell
-hash    # Hash the files in a directory
-copy    # (not implemented) Copy files while hashing them
-verify  # Verify files against stored hashes
+hash     # Hash the files in a directory
+copy     # (not implemented) Copy files while hashing them
+verify   # Verify files against stored hashes
+download # (not implemented) Download and hash files
 ```
 
 ## Building

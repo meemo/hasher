@@ -23,6 +23,8 @@ pub enum HasherCommand {
     Copy(HasherCopyArgs),
     /// Verify files against stored hashes in the database
     Verify(HasherVerifyArgs),
+    /// Download and hash file at the given URL
+    Download(HasherDownloadArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -41,6 +43,34 @@ pub struct HasherCopyArgs {
     /// Destination directory
     pub destination: PathBuf,
 
+    /// Store source path instead of destination path in database
+    #[arg(short = 'p', long)]
+    pub store_source_path: bool,
+
+    /// Compress destination files with gzip
+    #[arg(short = 'z', long)]
+    pub compress: bool,
+
+    /// Compression level (1-9 for gzip)
+    #[arg(long, default_value_t = 6)]
+    #[arg(value_parser = clap::value_parser!(u32).range(1..=9))]
+    pub compression_level: u32,
+
+    /// Hash the compressed file instead of uncompressed
+    #[arg(long)]
+    pub hash_compressed: bool,
+
+    #[clap(flatten)]
+    pub hash_options: HasherOptions,
+}
+
+#[derive(Parser, Debug)]
+pub struct HasherDownloadArgs {
+    /// Source URL or path to file with URLs
+    pub source: PathBuf,
+    /// Destination directory
+    pub destination: PathBuf,
+
     #[clap(flatten)]
     pub hash_options: HasherOptions,
 }
@@ -54,27 +84,8 @@ pub struct HasherVerifyArgs {
     #[arg(short = 'm', long)]
     pub mismatches_only: bool,
 
-    // Include a subset of HasherOptions directly instead of flattening
     #[clap(flatten)]
-    pub verbose: Verbosity<WarnLevel>,
-
-    #[arg(short = 'e', long)]
-    pub continue_on_error: bool,
-
-    #[arg(short = 'c', long, default_value = "./config.toml")]
-    pub config_file: PathBuf,
-
-    #[arg(long, default_value_t = 20)]
-    pub max_depth: usize,
-
-    #[arg(long)]
-    pub no_follow_symlinks: bool,
-
-    #[arg(short = 'b', long)]
-    pub breadth_first: bool,
-
-    #[arg(long)]
-    pub dry_run: bool,
+    pub hash_options: HasherOptions,
 }
 
 #[derive(Parser, Debug, Clone)]

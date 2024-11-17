@@ -94,9 +94,9 @@ pub async fn execute(args: HasherVerifyArgs, config: &Config) -> Result<(), Erro
 
     for entry in walkdir::WalkDir::new(&args.source)
         .min_depth(0)
-        .max_depth(args.max_depth)
-        .follow_links(!args.no_follow_symlinks)
-        .contents_first(!args.breadth_first)
+        .max_depth(args.hash_options.max_depth)
+        .follow_links(!args.hash_options.no_follow_symlinks)
+        .contents_first(!args.hash_options.breadth_first)
         .sort_by_file_name()
     {
         let entry = entry?;

@@ -34,14 +34,14 @@ async fn main() {
     let start_time = std::time::Instant::now();
     let args = HasherCli::parse();
 
-    // Get verbosity and config file based on command
-    let (verbosity, config_file) = match &args.command {
-        HasherCommand::Hash(args) => (&args.hash_options.verbose, &args.hash_options.config_file),
-        HasherCommand::Copy(args) => (&args.hash_options.verbose, &args.hash_options.config_file),
-        HasherCommand::Verify(args) => (&args.verbose, &args.config_file),
+    let (hash_options, config_file) = match &args.command {
+        HasherCommand::Hash(args) => (&args.hash_options, &args.hash_options.config_file),
+        HasherCommand::Copy(args) => (&args.hash_options, &args.hash_options.config_file),
+        HasherCommand::Verify(args) => (&args.hash_options, &args.hash_options.config_file),
+        HasherCommand::Download(args) => (&args.hash_options, &args.hash_options.config_file),
     };
 
-    setup_logging(verbosity);
+    setup_logging(&hash_options.verbose);
 
     let config = match configuration::get_config(config_file) {
         Ok(config) => config,
@@ -78,6 +78,7 @@ async fn main() {
         HasherCommand::Hash(args) => commands::hash::execute(args, &config).await,
         HasherCommand::Copy(args) => commands::copy::execute(args, &config).await,
         HasherCommand::Verify(args) => commands::verify::execute(args, &config).await,
+        HasherCommand::Download(args) => commands::download::execute(args, &config).await,
     };
 
     if let Err(e) = result {

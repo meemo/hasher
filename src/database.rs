@@ -1,10 +1,16 @@
 use std::path::Path;
+use std::time::Duration;
 
+use tokio::time::sleep;
 use sqlx::{query_builder::QueryBuilder, Row, Column};
 use sqlx::{SqliteConnection, Connection, sqlite::SqliteConnectOptions};
 use log::info;
 
 use crate::utils::Error;
+use crate::configuration::Config;
+
+const DB_RETRY_DELAY: Duration = Duration::from_millis(100);
+const MAX_DB_RETRIES: u32 = 3;
 
 // The first chunk of the database is down below in the code to prevent injection possibilities
 const HASHES: &str = "(
@@ -132,4 +138,51 @@ pub async fn get_file_hashes(
     }
 
     Ok(results)
+}
+
+pub async fn insert_single_hash(
+    config: &Config,
+    file_path: &Path,
+    size: usize,
+    hashes: &[(&str, Vec<u8>)],
+    db_conn: &mut SqliteConnection,
+) -> Result<(), Error> {
+    let mut retries = 0;
+    loop {
+        let mut query_builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new("INSERT INTO ");
+        query_builder.push(&config.database.table_name);
+
+        let mut sep = query_builder.separated(", ");
+        sep.push_unseparated(" (");
+        sep.push("file_path");
+        sep.push("file_size");
+        for (hash_name, _) in hashes {
+            sep.push(*hash_name);
+        }
+
+        let mut sep = query_builder.separated(", ");
+        sep.push_unseparated(") VALUES (");
+        sep.push_bind(file_path.display().to_string());
+        sep.push_bind(size as f64);
+        for (_, hash_data) in hashes {
+            sep.push_bind(hash_data.as_slice());
+        }
+        sep.push_unseparated(");");
+
+        let query = query_builder.build();
+
+        match query.execute(&mut *db_conn).await {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                if let Some(db_err) = e.as_database_error() {
+                    if db_err.code().as_deref() == Some("SQLITE_BUSY") && retries < MAX_DB_RETRIES {
+                        retries += 1;
+                        sleep(DB_RETRY_DELAY).await;
+                        continue;
+                    }
+                }
+                return Err(Error::from(e));
+            }
+        }
+    }
 }

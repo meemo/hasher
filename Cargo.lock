@@ -886,7 +886,7 @@ checksum = "3a9bfc1af68b1726ea47d3d5109de126281def866b33970e10fbab11b5dafab3"
 
 [[package]]
 name = "hasher"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "belt-hash",
  "blake2",
