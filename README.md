@@ -11,7 +11,7 @@ hasher has three main commands:
 ```shell
 hash    # Hash the files in a directory
 copy    # (not implemented) Copy files while hashing them
-verify  # (not implemented) Verify files against stored hashes
+verify  # Verify files against stored hashes
 ```
 
 ## Building
@@ -76,14 +76,24 @@ Options:
 ### `verify`
 
 ```shell
-hasher verify [OPTIONS] <SOURCE>
+Verify files against stored hashes in the database
+
+Usage: hasher verify [OPTIONS] <SOURCE>
 
 Arguments:
   <SOURCE>  Directory to verify
 
 Options:
-  Same as hash command, plus:
-  -m, --mismatches-only          Only output mismatched files
+  -m, --mismatches-only            Report only mismatches
+  -v, --verbose...                 Increase logging verbosity
+  -q, --quiet...                   Decrease logging verbosity
+  -e, --continue-on-error
+  -c, --config-file <CONFIG_FILE>  [default: ./config.toml]
+      --max-depth <MAX_DEPTH>      [default: 20]
+      --no-follow-symlinks
+  -b, --breadth-first
+      --dry-run
+  -h, --help                       Print help
 ```
 
 ### Example Usage
@@ -130,5 +140,14 @@ The following hashes are supported by the program:
 - SHABAL
 
 ## Notes
+
+### Memory Integrity
+
+While hasher being written in Rust (aside from the sqlite driver) makes it immune to memory safety bugs, hasher does not
+have any protections against any issues that may compromise memory integrity like cosmic bitflips. This is not a concern
+for most activities on servers that have ECC memory, however this is important to keep in mind if you are doing very
+large amounts of hashing on conventional computers with non-ECC memory. Trust, but verify.
+
+### Other
 
 Sponsored by 📼 🚙

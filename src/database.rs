@@ -1,5 +1,7 @@
-use sqlx::{query_builder::QueryBuilder, Connection};
-use sqlx::{SqliteConnection, sqlite::SqliteConnectOptions};
+use std::path::Path;
+
+use sqlx::{query_builder::QueryBuilder, Row, Column};
+use sqlx::{SqliteConnection, Connection, sqlite::SqliteConnectOptions};
 use log::info;
 
 use crate::utils::Error;
@@ -98,4 +100,36 @@ pub async fn close_database(db_string: &str) {
             .execute(&mut db_conn)
             .await;
     }
+}
+
+pub async fn get_file_hashes(
+    path: &Path,
+    conn: &mut SqliteConnection,
+) -> Result<Vec<(String, (usize, Vec<u8>))>, Error> {
+    let query = format!(
+        "SELECT * FROM hashes WHERE file_path = '{}'",
+        path.display()
+    );
+    let row: sqlx::sqlite::SqliteRow = sqlx::query(&query)
+        .fetch_optional(conn)
+        .await?
+        .ok_or_else(|| Error::Config("File not found in database".into()))?;
+
+    let size = row.get::<i64, _>("file_size") as usize;  // Changed from f64 to i64
+    let mut results = Vec::new();
+
+    for col in row.columns() {
+        let name = col.name();
+        if name != "file_path" && name != "file_size" {
+            if let Ok(hash) = row.try_get::<Option<Vec<u8>>, _>(name) {
+                if let Some(hash) = hash {
+                    if !hash.is_empty() {
+                        results.push((name.to_string(), (size, hash)));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(results)
 }

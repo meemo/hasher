@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use clap_verbosity_flag::{Verbosity, WarnLevel};
@@ -9,12 +9,19 @@ use hasher::HashConfig;
 use crate::utils::Error;
 
 #[derive(Parser, Debug)]
+#[command(author, version, about)]
+pub struct HasherCli {
+    #[command(subcommand)]
+    pub command: HasherCommand,
+}
+
+#[derive(Parser, Debug)]
 pub enum HasherCommand {
     /// Hash files in a directory
     Hash(HasherHashArgs),
     /// Copy files while hashing them
     Copy(HasherCopyArgs),
-    /// Verify files against stored hashes
+    /// Verify files against stored hashes in the database
     Verify(HasherVerifyArgs),
 }
 
@@ -43,12 +50,31 @@ pub struct HasherVerifyArgs {
     /// Directory to verify
     pub source: PathBuf,
 
-    #[clap(flatten)]
-    pub hash_options: HasherOptions,
-
     /// Report only mismatches
     #[arg(short = 'm', long)]
     pub mismatches_only: bool,
+
+    // Include a subset of HasherOptions directly instead of flattening
+    #[clap(flatten)]
+    pub verbose: Verbosity<WarnLevel>,
+
+    #[arg(short = 'e', long)]
+    pub continue_on_error: bool,
+
+    #[arg(short = 'c', long, default_value = "./config.toml")]
+    pub config_file: PathBuf,
+
+    #[arg(long, default_value_t = 20)]
+    pub max_depth: usize,
+
+    #[arg(long)]
+    pub no_follow_symlinks: bool,
+
+    #[arg(short = 'b', long)]
+    pub breadth_first: bool,
+
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -88,13 +114,6 @@ pub struct HasherOptions {
 
     #[arg(long)]
     pub dry_run: bool,
-}
-
-#[derive(Parser, Debug)]
-#[command(author, version, about)]
-pub struct HasherArgs {
-    #[command(subcommand)]
-    pub command: HasherCommand,
 }
 
 #[derive(Deserialize)]
@@ -161,8 +180,8 @@ pub struct Config {
     pub hashes: Hashes,
 }
 
-pub fn get_config(options: &HasherOptions) -> Result<Config, Error> {
-    let config_str = fs::read_to_string(&options.config_file)
+pub fn get_config(path: &Path) -> Result<Config, Error> {
+    let config_str = fs::read_to_string(path)
         .map_err(|e| Error::Config(format!("Failed to read config file: {}", e)))?;
 
     toml::from_str(&config_str)
