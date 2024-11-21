@@ -1,18 +1,19 @@
-use std::process::exit;
-use std::io::Write;
 use chrono::Utc;
+use std::io::Write;
+use std::process::exit;
 
-use log::{error, warn};
 use clap::Parser;
 use clap_verbosity_flag::Verbosity;
+use log::{error, warn};
 
 use crate::configuration::{HasherCli, HasherCommand};
 
-mod utils;
-mod configuration;
-mod output;
-mod database;
 mod commands;
+mod configuration;
+mod database;
+mod downloader;
+mod output;
+mod utils;
 
 fn setup_logging<T: clap_verbosity_flag::LogLevel>(verbose: &Verbosity<T>) {
     env_logger::builder()
@@ -53,12 +54,15 @@ async fn main() {
 
     let should_close_wal = match &args.command {
         HasherCommand::Hash(args) => {
-            if !args.hash_options.json_only {  // Initialize DB if we're not JSON-only
+            if !args.hash_options.json_only {
+                // Initialize DB if we're not JSON-only
                 if let Err(e) = database::init_database(
                     &config.database.db_string,
                     &config.database.table_name,
-                    args.hash_options.use_wal
-                ).await {
+                    args.hash_options.use_wal,
+                )
+                .await
+                {
                     error!("Database initialization error: {}", e);
                     exit(1);
                 }
@@ -68,7 +72,10 @@ async fn main() {
                 warn!("Both --sql-only and --json-only specified, defaulting to both outputs");
             }
 
-            if !args.hash_options.dry_run && args.hash_options.sql_only && args.hash_options.json_only {
+            if !args.hash_options.dry_run
+                && args.hash_options.sql_only
+                && args.hash_options.json_only
+            {
                 warn!("No output method available! Remove --sql-only or --json-only (see --help)");
                 exit(1);
             }

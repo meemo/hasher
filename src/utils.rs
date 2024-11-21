@@ -1,5 +1,5 @@
-use std::io;
 use std::fmt;
+use std::io;
 
 use sqlx;
 
@@ -12,13 +12,14 @@ pub enum Error {
     DiskSpace,
     DbLocked,
     Config(String),
+    Download(String),
 }
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         match e.kind() {
             io::ErrorKind::OutOfMemory => Error::DiskSpace,
-            _ => Error::IO(e)
+            _ => Error::IO(e),
         }
     }
 }
@@ -37,8 +38,10 @@ impl From<hasher::Error> for Error {
 impl From<sqlx::Error> for Error {
     fn from(e: sqlx::Error) -> Self {
         match e {
-            sqlx::Error::Database(e) if e.code().as_deref() == Some("SQLITE_BUSY") => Error::DbLocked,
-            _ => Error::Database(e)
+            sqlx::Error::Database(e) if e.code().as_deref() == Some("SQLITE_BUSY") => {
+                Error::DbLocked
+            }
+            _ => Error::Database(e),
         }
     }
 }
@@ -63,6 +66,7 @@ impl fmt::Display for Error {
             Error::DiskSpace => write!(f, "Out of disk space"),
             Error::DbLocked => write!(f, "Database is locked"),
             Error::Config(e) => write!(f, "Configuration error: {}", e),
+            Error::Download(e) => write!(f, "Download error: {}", e),
         }
     }
 }

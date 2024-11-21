@@ -10,16 +10,14 @@
 .Trashes
 ~*
 
-# Rust build output
-debug/
+# Rust outputs
 target/
+*.pdb
+*.rs.bk
 
-# Hash outputs
-hashes/
-output/
-*.db*
-
-# Test files
+# Hash/test outputs
+data/
 test/
+*.db*
 zero
 *.tar.gz

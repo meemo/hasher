@@ -1,13 +1,13 @@
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use tokio::time::sleep;
-use sqlx::{query_builder::QueryBuilder, Row, Column};
-use sqlx::{SqliteConnection, Connection, sqlite::SqliteConnectOptions};
 use log::info;
+use sqlx::{query_builder::QueryBuilder, Column, Row};
+use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
+use tokio::time::sleep;
 
-use crate::utils::Error;
 use crate::configuration::Config;
+use crate::utils::Error;
 
 const DB_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_DB_RETRIES: u32 = 3;
@@ -140,11 +140,10 @@ pub async fn get_file_hashes(
 pub async fn get_all_paths(conn: &mut SqliteConnection) -> Result<Vec<PathBuf>, Error> {
     let query = "SELECT file_path FROM hashes";
 
-    let rows = sqlx::query(query)
-        .fetch_all(conn)
-        .await?;
+    let rows = sqlx::query(query).fetch_all(conn).await?;
 
-    Ok(rows.iter()
+    Ok(rows
+        .iter()
         .map(|row| PathBuf::from(row.get::<String, _>("file_path")))
         .collect())
 }

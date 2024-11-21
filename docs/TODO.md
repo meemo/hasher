@@ -1,21 +1,11 @@
 # TODO
 
-- Add rclone-like CLI interface for multiple difference major options:
-  - `./hasher hash {options} {source directory}`
-    - Identical functionality to now
-  - `./hasher validate {options}`
-    - Read from the database and check the files at the path
-    - Output conflicts as json to console? Unsure what will be the best way to notify about this
-  - `./hasher copy {options} {source directory} {destination directory}`
-    - Copy files from source to destination, hash along the way
-    - Have option to store source path instead of destination path
-  - `./hasher download {options} {url OR path to file with newline-separated URLs} {destination directory}`
-    - Downloads the files to the given destination dir while hashing it in the specified way
-- Config and usage changes
-  - Move `--use-wal` to config.toml under the database section, default to on
-  - Add a general section to config.toml, move these in there:
-    - Breadth first
-    - Others TBD
+- Downloading changes
+  - Add `--no-clobber` to skip already downloaded files
+  - Add `--skip-failures` to skip e.g. 404s in lists of URLs without failure
+    - Failures should have a specific JSON out detailing why they failed
+  - Add user agent to config file, use a different default
+- Config changes
   - Make it so no config.toml is required to use all default settings according to the repo's config.toml
 - Add a lockfile for directories currently being hashed
   - Ensuring 2 instances of hasher don't hash the same major directory, don't worry about lower directories

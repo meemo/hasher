@@ -1,20 +1,23 @@
+use serde_json::json;
+use sqlx::Connection;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter};
 use std::path::Path;
-use sqlx::Connection;
-use serde_json::json;
 
 use log::{error, info};
 use walkdir::WalkDir;
 
-use crate::configuration::{HasherCopyArgs, Config};
-use crate::utils::Error;
+use crate::configuration::{Config, HasherCopyArgs};
 use crate::database::insert_single_hash;
-use hasher::{Hasher, HashConfig};
+use crate::utils::Error;
+use hasher::{HashConfig, Hasher};
 
 fn output_json(file_path: &Path, file_size: usize, hashes: &[(&str, Vec<u8>)], pretty: bool) {
     let mut hash_map = serde_json::Map::new();
-    hash_map.insert("file_path".to_string(), json!(file_path.display().to_string()));
+    hash_map.insert(
+        "file_path".to_string(),
+        json!(file_path.display().to_string()),
+    );
     hash_map.insert("file_size".to_string(), json!(file_size));
 
     for (hash_name, hash_data) in hashes {
@@ -25,7 +28,8 @@ fn output_json(file_path: &Path, file_size: usize, hashes: &[(&str, Vec<u8>)], p
         serde_json::to_string_pretty(&hash_map)
     } else {
         serde_json::to_string(&hash_map)
-    }.unwrap();
+    }
+    .unwrap();
 
     println!("{}", output);
 }
@@ -75,8 +79,9 @@ async fn copy_and_hash_file(
 
         match hasher.hash_file(path_to_hash) {
             Ok((file_size, hashes)) => {
-                process_hash_results(path_to_hash, file_size, &hashes, args, config, db_conn).await?;
-            },
+                process_hash_results(path_to_hash, file_size, &hashes, args, config, db_conn)
+                    .await?;
+            }
             Err(e) => {
                 if args.hash_options.continue_on_error {
                     error!("Failed to hash {}: {}", path_to_hash.display(), e);
@@ -110,7 +115,8 @@ async fn copy_directory(
         let path = entry.path();
 
         if path.is_file() {
-            let rel_path = path.strip_prefix(base_source)
+            let rel_path = path
+                .strip_prefix(base_source)
                 .map_err(|_| Error::Config("Failed to strip prefix".into()))?;
             let dest_path = base_dest.join(rel_path);
 

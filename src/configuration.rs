@@ -5,8 +5,8 @@ use clap::Parser;
 use clap_verbosity_flag::{Verbosity, WarnLevel};
 use serde_derive::Deserialize;
 
-use hasher::HashConfig;
 use crate::utils::Error;
+use hasher::HashConfig;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]

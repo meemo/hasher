@@ -1,16 +1,21 @@
 use std::path::Path;
 
-use sqlx::Connection;
-use log::{info, warn, error};
+use log::{error, info, warn};
 use serde_json::Value;
+use sqlx::Connection;
 
-use crate::configuration::{HasherVerifyArgs, Config};
-use crate::database::{get_file_hashes, get_all_paths};
+use crate::configuration::{Config, HasherVerifyArgs};
+use crate::database::{get_all_paths, get_file_hashes};
 use crate::utils::Error;
-use hasher::{Hasher, HashConfig};
+use hasher::{HashConfig, Hasher};
 
-fn extract_stored_hashes(stored_hashes: &[(String, (usize, Vec<u8>))]) -> (bool, bool, Vec<u8>, Vec<u8>, usize) {
-    let stored_size = stored_hashes.first().map(|(_, (size, _))| *size).unwrap_or_default();
+fn extract_stored_hashes(
+    stored_hashes: &[(String, (usize, Vec<u8>))],
+) -> (bool, bool, Vec<u8>, Vec<u8>, usize) {
+    let stored_size = stored_hashes
+        .first()
+        .map(|(_, (size, _))| *size)
+        .unwrap_or_default();
     let mut found_crc32 = false;
     let mut found_sha256 = false;
     let mut stored_crc32 = Vec::new();
@@ -30,7 +35,13 @@ fn extract_stored_hashes(stored_hashes: &[(String, (usize, Vec<u8>))]) -> (bool,
         }
     }
 
-    (found_crc32, found_sha256, stored_crc32, stored_sha256, stored_size)
+    (
+        found_crc32,
+        found_sha256,
+        stored_crc32,
+        stored_sha256,
+        stored_size,
+    )
 }
 
 fn extract_current_hashes(current_hashes: &[(&str, Vec<u8>)]) -> (Vec<u8>, Vec<u8>) {
@@ -48,18 +59,32 @@ fn extract_current_hashes(current_hashes: &[(&str, Vec<u8>)]) -> (Vec<u8>, Vec<u
     (current_crc32, current_sha256)
 }
 
-fn validate_hashes(found_crc32: bool, found_sha256: bool, current_crc32: &[u8], current_sha256: &[u8],
-                  stored_crc32: &[u8], stored_sha256: &[u8]) -> Option<(String, Vec<u8>, Vec<u8>)> {
+fn validate_hashes(
+    found_crc32: bool,
+    found_sha256: bool,
+    current_crc32: &[u8],
+    current_sha256: &[u8],
+    stored_crc32: &[u8],
+    stored_sha256: &[u8],
+) -> Option<(String, Vec<u8>, Vec<u8>)> {
     if !found_crc32 || !found_sha256 {
         return None;
     }
 
     if current_crc32 != stored_crc32 {
-        return Some(("crc32".to_string(), current_crc32.to_vec(), stored_crc32.to_vec()));
+        return Some((
+            "crc32".to_string(),
+            current_crc32.to_vec(),
+            stored_crc32.to_vec(),
+        ));
     }
 
     if current_sha256 != stored_sha256 {
-        return Some(("sha256".to_string(), current_sha256.to_vec(), stored_sha256.to_vec()));
+        return Some((
+            "sha256".to_string(),
+            current_sha256.to_vec(),
+            stored_sha256.to_vec(),
+        ));
     }
 
     None
@@ -75,27 +100,47 @@ fn build_verification_json(
     let is_valid = failed_hash.is_none() && !is_missing;
     let path_str = path.display().to_string();
 
-    let stored_hash = failed_hash.as_ref()
+    let stored_hash = failed_hash
+        .as_ref()
         .map(|(_, _, stored)| hex::encode(stored))
         .unwrap_or_else(|| hex::encode(&Vec::new()));
 
     // This is ugly because I want the output to be in a consistent order
     let (current_part, algorithm_part) = if is_missing {
-        (format!(r#""current":{{"path":"{}","size":{},"hash":"file not found"}}"#,
-                path_str, stored_size),
-         r#","algorithm":"file not found""#.to_string())
+        (
+            format!(
+                r#""current":{{"path":"{}","size":{},"hash":"file not found"}}"#,
+                path_str, stored_size
+            ),
+            r#","algorithm":"file not found""#.to_string(),
+        )
     } else if let Some((ref algorithm, ref current, _)) = failed_hash {
-        (format!(r#""current":{{"path":"{}","size":{},"hash":"{}"}}"#,
-                path_str, current_size.unwrap_or_default(), hex::encode(current)),
-         format!(r#","algorithm":"{}""#, algorithm))
+        (
+            format!(
+                r#""current":{{"path":"{}","size":{},"hash":"{}"}}"#,
+                path_str,
+                current_size.unwrap_or_default(),
+                hex::encode(current)
+            ),
+            format!(r#","algorithm":"{}""#, algorithm),
+        )
     } else {
         (String::new(), String::new())
     };
 
-    format!(r#"{{"valid":{},"original":{{"path":"{}","size":{},"hash":"{}"}}{}{}}}"#,
-            is_valid, path_str, stored_size, stored_hash,
-            if !current_part.is_empty() { format!(",{}", current_part) } else { String::new() },
-            algorithm_part)
+    format!(
+        r#"{{"valid":{},"original":{{"path":"{}","size":{},"hash":"{}"}}{}{}}}"#,
+        is_valid,
+        path_str,
+        stored_size,
+        stored_hash,
+        if !current_part.is_empty() {
+            format!(",{}", current_part)
+        } else {
+            String::new()
+        },
+        algorithm_part
+    )
 }
 
 async fn verify_file(
@@ -104,7 +149,8 @@ async fn verify_file(
     db_conn: &mut sqlx::SqliteConnection,
 ) -> Result<(), Error> {
     let stored_hashes = get_file_hashes(path, db_conn).await?;
-    let (found_crc32, found_sha256, stored_crc32, stored_sha256, stored_size) = extract_stored_hashes(&stored_hashes);
+    let (found_crc32, found_sha256, stored_crc32, stored_sha256, stored_size) =
+        extract_stored_hashes(&stored_hashes);
 
     if !found_crc32 || !found_sha256 {
         warn!("Missing required hashes for {}", path.display());
@@ -130,8 +176,14 @@ async fn verify_file(
         // Use CRC32 for file not found case
         Some(("crc32".to_string(), Vec::new(), stored_crc32))
     } else {
-        validate_hashes(found_crc32, found_sha256, &current_crc32, &current_sha256,
-                       &stored_crc32, &stored_sha256)
+        validate_hashes(
+            found_crc32,
+            found_sha256,
+            &current_crc32,
+            &current_sha256,
+            &stored_crc32,
+            &stored_sha256,
+        )
     };
 
     if failed_hash.is_some() || current_size.is_none() || !args.mismatches_only {
@@ -140,7 +192,7 @@ async fn verify_file(
             current_size,
             stored_size,
             failed_hash,
-            current_size.is_none()
+            current_size.is_none(),
         );
 
         if args.hash_options.pretty_json {
@@ -186,9 +238,16 @@ pub async fn execute(args: HasherVerifyArgs, config: &Config) -> Result<(), Erro
                         });
                         if let Ok((_, hashes)) = hasher.hash_file(&path) {
                             let (current_crc32, current_sha256) = extract_current_hashes(&hashes);
-                            if validate_hashes(found_crc32, found_sha256,
-                                            &current_crc32, &current_sha256,
-                                            &stored_crc32, &stored_sha256).is_some() {
+                            if validate_hashes(
+                                found_crc32,
+                                found_sha256,
+                                &current_crc32,
+                                &current_sha256,
+                                &stored_crc32,
+                                &stored_sha256,
+                            )
+                            .is_some()
+                            {
                                 mismatch_count += 1;
                             }
                         }
@@ -207,8 +266,10 @@ pub async fn execute(args: HasherVerifyArgs, config: &Config) -> Result<(), Erro
         }
     }
 
-    info!("Processed {} files: {} missing, {} mismatched, {} errors",
-          processed_count, missing_count, mismatch_count, error_count);
+    info!(
+        "Processed {} files: {} missing, {} mismatched, {} errors",
+        processed_count, missing_count, mismatch_count, error_count
+    );
 
     Ok(())
 }

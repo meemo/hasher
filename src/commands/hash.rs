@@ -1,7 +1,7 @@
+use sqlx::{Connection, SqliteConnection};
 use std::path::PathBuf;
-use sqlx::{SqliteConnection, Connection};
 
-use crate::configuration::{HasherHashArgs, Config};
+use crate::configuration::{Config, HasherHashArgs};
 use crate::output;
 use crate::utils::Error;
 
@@ -10,9 +10,11 @@ pub async fn execute(args: HasherHashArgs, config: &Config) -> Result<(), Error>
 
     if args.hash_options.stdin {
         let mut conn = if !args.hash_options.json_only {
-            Some(SqliteConnection::connect(&config.database.db_string)
-                .await
-                .map_err(Error::Database)?)
+            Some(
+                SqliteConnection::connect(&config.database.db_string)
+                    .await
+                    .map_err(Error::Database)?,
+            )
         } else {
             None
         };
