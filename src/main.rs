@@ -53,7 +53,7 @@ async fn main() {
 
     let should_close_wal = match &args.command {
         HasherCommand::Hash(args) => {
-            if args.hash_options.sql_out {
+            if !args.hash_options.json_only {  // Initialize DB if we're not JSON-only
                 if let Err(e) = database::init_database(
                     &config.database.db_string,
                     &config.database.table_name,
@@ -64,12 +64,16 @@ async fn main() {
                 }
             }
 
-            if !args.hash_options.dry_run && !args.hash_options.sql_out && !args.hash_options.json_out {
-                warn!("No output method selected! Use --sql-out or --json-out (see --help)");
+            if args.hash_options.sql_only && args.hash_options.json_only {
+                warn!("Both --sql-only and --json-only specified, defaulting to both outputs");
+            }
+
+            if !args.hash_options.dry_run && args.hash_options.sql_only && args.hash_options.json_only {
+                warn!("No output method available! Remove --sql-only or --json-only (see --help)");
                 exit(1);
             }
 
-            args.hash_options.sql_out && args.hash_options.use_wal
+            !args.hash_options.json_only && args.hash_options.use_wal
         }
         _ => false,
     };

@@ -1,121 +1,214 @@
-use std::collections::HashMap;
 use std::path::Path;
-use sqlx::{Connection, SqliteConnection};
-use log::{error, info};
-use serde_json::json;
+
+use sqlx::Connection;
+use log::{info, warn, error};
+use serde_json::Value;
 
 use crate::configuration::{HasherVerifyArgs, Config};
+use crate::database::{get_file_hashes, get_all_paths};
 use crate::utils::Error;
-use crate::database;
 use hasher::{Hasher, HashConfig};
 
-fn output_verification_json(
+fn extract_stored_hashes(stored_hashes: &[(String, (usize, Vec<u8>))]) -> (bool, bool, Vec<u8>, Vec<u8>, usize) {
+    let stored_size = stored_hashes.first().map(|(_, (size, _))| *size).unwrap_or_default();
+    let mut found_crc32 = false;
+    let mut found_sha256 = false;
+    let mut stored_crc32 = Vec::new();
+    let mut stored_sha256 = Vec::new();
+
+    for (name, (_, hash)) in stored_hashes {
+        match name.as_str() {
+            "crc32" => {
+                found_crc32 = true;
+                stored_crc32 = hash.clone();
+            }
+            "sha256" => {
+                found_sha256 = true;
+                stored_sha256 = hash.clone();
+            }
+            _ => {}
+        }
+    }
+
+    (found_crc32, found_sha256, stored_crc32, stored_sha256, stored_size)
+}
+
+fn extract_current_hashes(current_hashes: &[(&str, Vec<u8>)]) -> (Vec<u8>, Vec<u8>) {
+    let mut current_crc32 = Vec::new();
+    let mut current_sha256 = Vec::new();
+
+    for (name, hash) in current_hashes {
+        match *name {
+            "crc32" => current_crc32 = hash.clone(),
+            "sha256" => current_sha256 = hash.clone(),
+            _ => {}
+        }
+    }
+
+    (current_crc32, current_sha256)
+}
+
+fn validate_hashes(found_crc32: bool, found_sha256: bool, current_crc32: &[u8], current_sha256: &[u8],
+                  stored_crc32: &[u8], stored_sha256: &[u8]) -> Option<(String, Vec<u8>, Vec<u8>)> {
+    if !found_crc32 || !found_sha256 {
+        return None;
+    }
+
+    if current_crc32 != stored_crc32 {
+        return Some(("crc32".to_string(), current_crc32.to_vec(), stored_crc32.to_vec()));
+    }
+
+    if current_sha256 != stored_sha256 {
+        return Some(("sha256".to_string(), current_sha256.to_vec(), stored_sha256.to_vec()));
+    }
+
+    None
+}
+
+fn build_verification_json(
     path: &Path,
-    current: Option<(usize, Vec<u8>)>,
-    original: Option<(usize, Vec<u8>)>,
-    algorithm: &str
-) {
-    let json = json!({
-        "path": path.display().to_string(),
-        "current": current.map(|(size, hash)| json!({
-            "size": size,
-            "hash": hex::encode(hash)
-        })),
-        "original": original.map(|(size, hash)| json!({
-            "size": size,
-            "hash": hex::encode(hash)
-        })),
-        "algorithm": algorithm
-    });
-    println!("{}", serde_json::to_string(&json).unwrap());
+    current_size: Option<usize>,
+    stored_size: usize,
+    failed_hash: Option<(String, Vec<u8>, Vec<u8>)>,
+    is_missing: bool,
+) -> String {
+    let is_valid = failed_hash.is_none() && !is_missing;
+    let path_str = path.display().to_string();
+
+    let stored_hash = failed_hash.as_ref()
+        .map(|(_, _, stored)| hex::encode(stored))
+        .unwrap_or_else(|| hex::encode(&Vec::new()));
+
+    // This is ugly because I want the output to be in a consistent order
+    let (current_part, algorithm_part) = if is_missing {
+        (format!(r#""current":{{"path":"{}","size":{},"hash":"file not found"}}"#,
+                path_str, stored_size),
+         r#","algorithm":"file not found""#.to_string())
+    } else if let Some((ref algorithm, ref current, _)) = failed_hash {
+        (format!(r#""current":{{"path":"{}","size":{},"hash":"{}"}}"#,
+                path_str, current_size.unwrap_or_default(), hex::encode(current)),
+         format!(r#","algorithm":"{}""#, algorithm))
+    } else {
+        (String::new(), String::new())
+    };
+
+    format!(r#"{{"valid":{},"original":{{"path":"{}","size":{},"hash":"{}"}}{}{}}}"#,
+            is_valid, path_str, stored_size, stored_hash,
+            if !current_part.is_empty() { format!(",{}", current_part) } else { String::new() },
+            algorithm_part)
 }
 
 async fn verify_file(
     path: &Path,
-    config: &Config,
-    db_conn: &mut SqliteConnection,
-    all_results: bool
-) -> Result<bool, Error> {
-    let stored = match database::get_file_hashes(path, db_conn).await {
-        Ok(hashes) => hashes,
-        Err(Error::Config(_)) => {
-            error!("File not found in database: {}", path.display());
-            return Ok(false);
-        }
-        Err(e) => return Err(e),
-    };
+    args: &HasherVerifyArgs,
+    db_conn: &mut sqlx::SqliteConnection,
+) -> Result<(), Error> {
+    let stored_hashes = get_file_hashes(path, db_conn).await?;
+    let (found_crc32, found_sha256, stored_crc32, stored_sha256, stored_size) = extract_stored_hashes(&stored_hashes);
 
-    if stored.is_empty() {
-        error!("No hashes found for file: {}", path.display());
-        return Ok(false);
+    if !found_crc32 || !found_sha256 {
+        warn!("Missing required hashes for {}", path.display());
+        return Ok(());
     }
 
-    let (size, hashes) = match Hasher::new(HashConfig::from(&config.hashes)).hash_file(path) {
-        Ok(result) => result,
-        Err(e) => {
-            error!("Failed to hash file {}: {}", path.display(), e);
-            return Ok(false);
-        }
+    let (current_size, current_hashes) = if !path.exists() {
+        info!("File not found: {}", path.display());
+        (None, (Vec::new(), Vec::new()))
+    } else {
+        let mut hasher = Hasher::new(HashConfig {
+            crc32: true,
+            sha256: true,
+            ..Default::default()
+        });
+        info!("Verifying {}", path.display());
+        let (size, hashes) = hasher.hash_file(path)?;
+        (Some(size), extract_current_hashes(&hashes))
     };
 
-    let mut matches = true;
-    let current_hashes: HashMap<String, _> = hashes.into_iter()
-        .map(|(name, hash)| (name.to_string(), hash))
-        .collect();
+    let (current_crc32, current_sha256) = current_hashes;
+    let failed_hash = if current_size.is_none() {
+        // Use CRC32 for file not found case
+        Some(("crc32".to_string(), Vec::new(), stored_crc32))
+    } else {
+        validate_hashes(found_crc32, found_sha256, &current_crc32, &current_sha256,
+                       &stored_crc32, &stored_sha256)
+    };
 
-    for (algo, (stored_size, stored_hash)) in stored {
-        if let Some(current_hash) = current_hashes.get(&algo) {
-            if size != stored_size || current_hash.as_slice() != stored_hash.as_slice() {
-                matches = false;
-                output_verification_json(
-                    path,
-                    Some((size, current_hash.clone())),
-                    Some((stored_size, stored_hash)),
-                    &algo
-                );
-            } else if all_results {
-                output_verification_json(
-                    path,
-                    Some((size, current_hash.clone())),
-                    Some((stored_size, stored_hash)),
-                    &algo
-                );
+    if failed_hash.is_some() || current_size.is_none() || !args.mismatches_only {
+        let output = build_verification_json(
+            path,
+            current_size,
+            stored_size,
+            failed_hash,
+            current_size.is_none()
+        );
+
+        if args.hash_options.pretty_json {
+            if let Ok(parsed) = serde_json::from_str::<Value>(&output) {
+                println!("{}", serde_json::to_string_pretty(&parsed).unwrap());
+            } else {
+                println!("{}", output);
             }
+        } else {
+            println!("{}", output);
         }
     }
 
-    Ok(matches)
+    Ok(())
 }
 
 pub async fn execute(args: HasherVerifyArgs, config: &Config) -> Result<(), Error> {
-    let mut db_conn = SqliteConnection::connect(&config.database.db_string).await?;
-    let mut total_files = 0;
-    let mut mismatched_files = 0;
+    info!("Starting verification");
 
-    for entry in walkdir::WalkDir::new(&args.source)
-        .min_depth(0)
-        .max_depth(args.hash_options.max_depth)
-        .follow_links(!args.hash_options.no_follow_symlinks)
-        .contents_first(!args.hash_options.breadth_first)
-        .sort_by_file_name()
-    {
-        let entry = entry?;
-        if !entry.path().is_dir() {
-            total_files += 1;
-            if !verify_file(
-                entry.path(),
-                config,
-                &mut db_conn,
-                !args.mismatches_only
-            ).await? {
-                mismatched_files += 1;
+    let mut db_conn = sqlx::SqliteConnection::connect(&config.database.db_string).await?;
+    let mut processed_count = 0;
+    let mut missing_count = 0;
+    let mut mismatch_count = 0;
+    let mut error_count = 0;
+
+    let paths = get_all_paths(&mut db_conn).await?;
+
+    for path in paths {
+        match verify_file(&path, &args, &mut db_conn).await {
+            Ok(()) => {
+                processed_count += 1;
+                if !path.exists() {
+                    missing_count += 1;
+                } else {
+                    // Check if file was mismatched by re-reading it to validate
+                    if let Ok(stored_hashes) = get_file_hashes(&path, &mut db_conn).await {
+                        let (found_crc32, found_sha256, stored_crc32, stored_sha256, _) =
+                            extract_stored_hashes(&stored_hashes);
+                        let mut hasher = Hasher::new(HashConfig {
+                            crc32: true,
+                            sha256: true,
+                            ..Default::default()
+                        });
+                        if let Ok((_, hashes)) = hasher.hash_file(&path) {
+                            let (current_crc32, current_sha256) = extract_current_hashes(&hashes);
+                            if validate_hashes(found_crc32, found_sha256,
+                                            &current_crc32, &current_sha256,
+                                            &stored_crc32, &stored_sha256).is_some() {
+                                mismatch_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                let err_msg = format!("Failed to verify {}: {}", path.display(), e);
+                error_count += 1;
+                if args.hash_options.continue_on_error {
+                    error!("{}", err_msg);
+                    continue;
+                }
+                return Err(e);
             }
         }
     }
 
-    info!(
-        "Verified {} files, {} mismatches found",
-        total_files, mismatched_files
-    );
+    info!("Processed {} files: {} missing, {} mismatched, {} errors",
+          processed_count, missing_count, mismatch_count, error_count);
+
     Ok(())
 }

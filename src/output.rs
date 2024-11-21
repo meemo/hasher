@@ -96,17 +96,22 @@ async fn process_single_file(
             log_hash_results(file_path, &hashes);
 
             if !args.dry_run {
-                if let Some(conn) = db_conn {
-                    if let Err(e) = insert_hash_to_db(config, file_path, file_size, &hashes, conn).await {
-                        let err_msg = format!("Database error for {}: {}", file_path.display(), e);
-                        if !args.continue_on_error {
-                            return Err(e);
+                let do_sql = !args.json_only;
+                let do_json = !args.sql_only;
+
+                if do_sql {
+                    if let Some(conn) = db_conn {
+                        if let Err(e) = insert_hash_to_db(config, file_path, file_size, &hashes, conn).await {
+                            let err_msg = format!("Database error for {}: {}", file_path.display(), e);
+                            if !args.continue_on_error {
+                                return Err(e);
+                            }
+                            error!("{}", err_msg);
                         }
-                        error!("{}", err_msg);
                     }
                 }
 
-                if args.json_out {
+                if do_json {
                     output_json(file_path, file_size, &hashes, args.pretty_json);
                 }
             }
@@ -151,7 +156,7 @@ pub async fn process_directory(
     args: &HasherOptions,
     config: &Config
 ) -> Result<(), Error> {
-    let mut db_conn = if args.sql_out {
+    let mut db_conn = if !args.json_only {
         Some(SqliteConnection::connect(&config.database.db_string).await?)
     } else {
         None

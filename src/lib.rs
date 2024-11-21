@@ -1,9 +1,10 @@
 use std::io::{BufReader, Read};
-use std::path::Path;
 use std::fs::File;
+use std::path::Path;
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
+use log::info;
 
 use digest::{Digest, DynDigest};
 
@@ -81,6 +82,14 @@ pub struct HashConfig {
     pub shabal256: bool,
     pub shabal384: bool,
     pub shabal512: bool,
+}
+
+impl Default for HashConfig {
+    fn default() -> Self {
+        Self {
+            crc32: false, md2: false, md4: false, md5: false, sha1: false, sha224: false, sha256: false, sha384: false, sha512: false, sha3_224: false, sha3_256: false, sha3_384: false, sha3_512: false, keccak224: false, keccak256: false, keccak384: false, keccak512: false, blake2s256: false, blake2b512: false, belt_hash: false, whirlpool: false, tiger: false, tiger2: false, streebog256: false, streebog512: false, ripemd128: false, ripemd160: false, ripemd256: false, ripemd320: false, fsb160: false, fsb224: false, fsb256: false, fsb384: false, fsb512: false, sm3: false, gost94_cryptopro: false, gost94_test: false, gost94_ua: false, gost94_s2015: false, groestl224: false, groestl256: false, groestl384: false, groestl512: false, shabal192: false, shabal224: false, shabal256: false, shabal384: false, shabal512: false
+        }
+    }
 }
 
 pub type HashResult = Vec<(&'static str, Vec<u8>)>;
@@ -162,6 +171,7 @@ impl Hasher {
             shabal512, shabal::Shabal512
         );
 
+        info!("Initialized hasher with {} algorithms", hashes.len() + crc32_hasher.is_some() as usize);
         Self {
             hashes,
             crc32_hasher,
@@ -172,7 +182,6 @@ impl Hasher {
         let mut results = Vec::with_capacity(self.hashes.len() + self.crc32_hasher.is_some() as usize);
 
         if let Some(crc32) = &self.crc32_hasher {
-            // Convert from native endian (what crc32fast returns) to little endian (what we want to store)
             results.push((
                 "crc32",
                 crc32.lock().map_err(|_| Error::ThreadPanic)?.clone().finalize().to_le_bytes().to_vec()
@@ -199,6 +208,7 @@ impl Hasher {
         }
 
         let size = metadata.len() as usize;
+        info!("Opened file {} ({} bytes)", path.display(), size);
         Ok((BufReader::with_capacity(CHUNK_SIZE.min(size), file), size))
     }
 
@@ -266,6 +276,7 @@ impl Hasher {
         if buffer.len() < SEQUENTIAL_SIZE {
             self.hash_buffer_sequential(&buffer_arc)
         } else {
+            info!("Processing {} byte chunk in parallel", buffer.len());
             self.hash_buffer_threaded(&buffer_arc)
         }
     }
@@ -285,6 +296,7 @@ impl Hasher {
 
             if let Ok(current_metadata) = path.metadata() {
                 if current_metadata.modified()? != start_metadata.modified()? {
+                    info!("File {} was modified during processing", path.display());
                     return Err(Error::FileChanged);
                 }
             }
@@ -293,7 +305,9 @@ impl Hasher {
             self.hash_buffer(&buffer)?;
         }
 
-        Ok((file_size, self.finalize_hashes()?))
+        let results = self.finalize_hashes()?;
+        info!("Completed hashing of {} with {} algorithms", path.display(), results.len());
+        Ok((file_size, results))
     }
 
     pub fn hash_single_buffer(&mut self, buffer: &[u8]) -> Result<HashResult, Error> {

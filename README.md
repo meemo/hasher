@@ -10,8 +10,8 @@ hasher has three main commands:
 
 ```shell
 hash     # Hash the files in a directory
-copy     # (not implemented) Copy files while hashing them
-verify   # Verify files against stored hashes
+copy     # Copy files while hashing them
+verify   # Verify the stored hashes in the database
 download # (not implemented) Download and hash files
 ```
 
@@ -55,58 +55,67 @@ instructions from extensions that only exist on modern CPUs.
 Usage: hasher hash [OPTIONS] [SOURCE]
 
 Arguments:
-  [SOURCE]  Directory to hash
+  [SOURCE]  Directory to hash (defaults to current directory)
 
 Options:
   -v, --verbose...                 Increase logging verbosity
   -q, --quiet...                   Decrease logging verbosity
   -e, --continue-on-error
-  -s, --sql-out
-  -j, --json-out
-  -p, --pretty-json
-  -w, --use-wal
+  -s, --sql-only                   Only output to SQLite database
+  -j, --json-only                  Only output to JSON
+  -p, --pretty-json               Format JSON output
+  -w, --use-wal                   Enable WAL mode for database
   -c, --config-file <CONFIG_FILE>  [default: ./config.toml]
-  -n, --stdin
+  -n, --stdin                     Read from stdin instead of files
       --max-depth <MAX_DEPTH>      [default: 20]
-      --no-follow-symlinks
-  -b, --breadth-first
-      --dry-run
+      --no-follow-symlinks        Don't follow symbolic links
+  -b, --breadth-first            Use breadth-first traversal
+      --dry-run                   Don't write any output
   -h, --help                       Print help
 ```
+
+By default, hasher outputs both to JSON and the SQLite database. Use --sql-only or --json-only to restrict output to
+just one format.
 
 ### `verify`
 
 ```shell
-Verify files against stored hashes in the database
+Verify stored hashes in the database
 
-Usage: hasher verify [OPTIONS] <SOURCE>
-
-Arguments:
-  <SOURCE>  Directory to verify
+Usage: hasher verify [OPTIONS]
 
 Options:
-  -m, --mismatches-only            Report only mismatches
+  -m, --mismatches-only            Only show mismatched files
   -v, --verbose...                 Increase logging verbosity
   -q, --quiet...                   Decrease logging verbosity
   -e, --continue-on-error
+  -p, --pretty-json               Format JSON output
   -c, --config-file <CONFIG_FILE>  [default: ./config.toml]
-      --max-depth <MAX_DEPTH>      [default: 20]
-      --no-follow-symlinks
-  -b, --breadth-first
-      --dry-run
   -h, --help                       Print help
 ```
 
+Verification works by checking all files stored in the database, showing their status in JSON format.
+
 ### Example Usage
 
-Hash all files in the current directory and output hashes to stdout (JSON formatting) and store in SQLite:
+Hash all files in the current directory (outputs both to JSON and SQLite by default):
 ```shell
-hasher hash -j -s .
+hasher hash .
 ```
 
-Verify files in a directory against stored hashes, showing only mismatches:
+Hash files but only store in database:
 ```shell
-hasher verify -m /path/to/dir
+hasher hash --sql-only .
+```
+
+Hash files but only output as JSON:
+```shell
+hasher hash --json-only .
+```
+
+Verify all files in the database, showing only mismatches:
+```shell
+hasher verify -m
 ```
 
 ### Config File

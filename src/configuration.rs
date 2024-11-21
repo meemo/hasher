@@ -77,10 +77,7 @@ pub struct HasherDownloadArgs {
 
 #[derive(Parser, Debug)]
 pub struct HasherVerifyArgs {
-    /// Directory to verify
-    pub source: PathBuf,
-
-    /// Report only mismatches
+    /// Only output when files fail to verify instead of outputting every file
     #[arg(short = 'm', long)]
     pub mismatches_only: bool,
 
@@ -96,11 +93,13 @@ pub struct HasherOptions {
     #[arg(short = 'e', long)]
     pub continue_on_error: bool,
 
+    /// Only output to SQLite database (default: output to both SQLite and JSON)
     #[arg(short = 's', long)]
-    pub sql_out: bool,
+    pub sql_only: bool,
 
+    /// Only output to JSON (default: output to both SQLite and JSON)
     #[arg(short = 'j', long)]
-    pub json_out: bool,
+    pub json_only: bool,
 
     #[arg(short = 'p', long)]
     pub pretty_json: bool,

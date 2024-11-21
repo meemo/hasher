@@ -3,6 +3,13 @@
 .vscode/
 [._]*.s[a-w][a-z]
 
+# Mac files
+.DS_Store
+.fseventsd
+.Spotlight-V100
+.Trashes
+~*
+
 # Rust build output
 debug/
 target/

@@ -38,11 +38,16 @@ async fn process_hash_results(
     config: &Config,
     db_conn: &mut Option<sqlx::SqliteConnection>,
 ) -> Result<(), Error> {
-    if let Some(conn) = db_conn {
-        insert_single_hash(config, path, file_size, hashes, conn).await?;
+    let do_sql = !args.hash_options.json_only;
+    let do_json = !args.hash_options.sql_only;
+
+    if do_sql {
+        if let Some(conn) = db_conn {
+            insert_single_hash(config, path, file_size, hashes, conn).await?;
+        }
     }
 
-    if args.hash_options.json_out {
+    if do_json {
         output_json(path, file_size, hashes, args.hash_options.pretty_json);
     }
 
@@ -132,7 +137,7 @@ pub async fn execute(args: HasherCopyArgs, config: &Config) -> Result<(), Error>
         return Err(Error::Config("Source path does not exist".into()));
     }
 
-    let mut db_conn = if args.hash_options.sql_out {
+    let mut db_conn = if !args.hash_options.json_only {
         Some(sqlx::SqliteConnection::connect(&config.database.db_string).await?)
     } else {
         None

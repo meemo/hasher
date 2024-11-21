@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{PathBuf, Path};
 use std::time::Duration;
 
 use tokio::time::sleep;
@@ -112,16 +112,13 @@ pub async fn get_file_hashes(
     path: &Path,
     conn: &mut SqliteConnection,
 ) -> Result<Vec<(String, (usize, Vec<u8>))>, Error> {
-    let query = format!(
-        "SELECT * FROM hashes WHERE file_path = '{}'",
-        path.display()
-    );
-    let row: sqlx::sqlite::SqliteRow = sqlx::query(&query)
+    let row: sqlx::sqlite::SqliteRow = sqlx::query("SELECT * FROM hashes WHERE file_path = ?")
+        .bind(path.display().to_string())
         .fetch_optional(conn)
         .await?
         .ok_or_else(|| Error::Config("File not found in database".into()))?;
 
-    let size = row.get::<i64, _>("file_size") as usize;  // Changed from f64 to i64
+    let size = row.get::<i64, _>("file_size") as usize;
     let mut results = Vec::new();
 
     for col in row.columns() {
@@ -138,6 +135,18 @@ pub async fn get_file_hashes(
     }
 
     Ok(results)
+}
+
+pub async fn get_all_paths(conn: &mut SqliteConnection) -> Result<Vec<PathBuf>, Error> {
+    let query = "SELECT file_path FROM hashes";
+
+    let rows = sqlx::query(query)
+        .fetch_all(conn)
+        .await?;
+
+    Ok(rows.iter()
+        .map(|row| PathBuf::from(row.get::<String, _>("file_path")))
+        .collect())
 }
 
 pub async fn insert_single_hash(
