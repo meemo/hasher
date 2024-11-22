@@ -1,5 +1,13 @@
 # Changelog/Version History
 
+## 0.8.7: Download improvements, more tests
+
+- `--skip-failures`, etc implemented for `download`
+- Add compressed file contents hashing support to `hash`
+- `download` now properly download from a list
+- Make Cargo.toml description up-to-date
+- Rewrote usage of README, added other sections
+
 ## 0.8.6: Add tests, fix bugs
 
 - Implement testing

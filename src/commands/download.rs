@@ -5,9 +5,9 @@ use reqwest::Url;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-use crate::compression::{self, CompressionAlgorithm};
+use crate::compression::{self, CompressionAlgorithm, CompressionType};
 use crate::configuration::{Config, HasherDownloadArgs};
-use crate::downloader::{sanitize_filename, DownloadConfig, Downloader};
+use crate::downloader::{sanitize_filename, DownloadConfig, DownloadResult, Downloader};
 use crate::utils::Error;
 
 fn construct_download_path(url: &str, base_dir: &Path) -> Result<PathBuf, Error> {
@@ -56,75 +56,117 @@ async fn read_url_list(path: &Path) -> Result<Vec<String>, Error> {
     Ok(urls)
 }
 
+fn build_download_config(args: &HasherDownloadArgs) -> DownloadConfig {
+    DownloadConfig {
+        retry_count: args.hash_options.retry_count,
+        retry_delay: std::time::Duration::from_secs(args.hash_options.retry_delay as u64),
+        compress: args.hash_options.compress,
+        compression_level: args.hash_options.compression_level,
+        _hash_compressed: args.hash_options.hash_compressed,
+        no_clobber: args.no_clobber,
+        _chunk_size: 1024 * 1024,
+    }
+}
+
+fn build_failure_json(result: &DownloadResult) -> String {
+    serde_json::json!({
+        "url": result.url,
+        "destination": result.path,
+        "error": result.error.clone().unwrap_or_else(|| "Unknown error".to_string()),
+        "type": "download_failure"
+    }).to_string()
+}
+
 async fn process_download_result(
-    result: crate::downloader::DownloadResult,
+    result: DownloadResult,
     args: &HasherDownloadArgs,
     config: &Config,
-) -> Result<(), Error> {
+) -> Result<bool, Error> {
     if result.success {
         info!(
             "Successfully downloaded {} to {}",
             result.url,
             result.path.display()
         );
-
         if !args.hash_options.dry_run {
-            crate::output::process_single_file(&result.path, config, &args.hash_options, &mut None)
-                .await?;
+            match crate::output::process_single_file(
+                &result.path,
+                config,
+                &args.hash_options,
+                &mut None,
+            )
+            .await
+            {
+                Ok(()) => Ok(false),
+                Err(e) if args.hash_options.skip_failures => {
+                    println!("{}", serde_json::json!({
+                        "url": result.url,
+                        "destination": result.path,
+                        "error": e.to_string(),
+                        "type": "hash_failure"
+                    }));
+                    Ok(true)
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            Ok(false)
         }
-    } else if !args.hash_options.continue_on_error {
-        return Err(Error::Download(format!(
+    } else if args.hash_options.skip_failures {
+        println!("{}", build_failure_json(&result));
+        Ok(true)
+    } else {
+        Err(Error::Download(format!(
             "Failed to download {}: {}",
             result.url,
             result.error.unwrap_or_else(|| "Unknown error".to_string())
-        )));
+        )))
     }
-
-    Ok(())
 }
 
 pub async fn execute(args: HasherDownloadArgs, config: &Config) -> Result<(), Error> {
-    let download_config = DownloadConfig {
-        compress: args.hash_options.compress,
-        compression_level: args.hash_options.compression_level,
-        _hash_compressed: args.hash_options.hash_compressed,
-        no_clobber: args.no_clobber,
-        ..DownloadConfig::default()
-    };
-
-    let downloader = Downloader::new(download_config.clone());
-
     let urls = if args.source.exists() {
         read_url_list(&args.source).await?
     } else {
         vec![args.source.to_string_lossy().to_string()]
     };
 
-    let download_config = download_config;
+    let should_compress = args.hash_options.compress;
+    let compression_level = args.hash_options.compression_level;
+    let downloader = Downloader::new(build_download_config(&args));
+
     let results = downloader
         .download_from_list(urls, &args.destination, move |url| {
-            let mut path = match construct_download_path(url, Path::new("")) {
-                Ok(p) => p,
-                Err(_) => return sanitize_filename(url),
-            };
-
-            if download_config.compress {
-                let compressor = compression::get_compressor(
-                    compression::CompressionType::Gzip,
-                    download_config.compression_level,
-                );
-                path = path.with_extension(format!(
-                    "{}{}",
-                    path.extension().unwrap_or_default().to_string_lossy(),
-                    compressor.extension()
-                ));
+            if let Ok(path) = construct_download_path(url, Path::new("")) {
+                if should_compress {
+                    let compressor = compression::get_compressor(
+                        CompressionType::Gzip,
+                        compression_level,
+                    );
+                    path.with_extension(format!(
+                        "{}{}",
+                        path.extension().unwrap_or_default().to_string_lossy(),
+                        compressor.extension()
+                    ))
+                } else {
+                    path
+                }
+            } else {
+                Path::new("").join(sanitize_filename(url))
             }
-            path
         })
         .await;
 
+    let mut had_failures = false;
     for result in results {
-        process_download_result(result, &args, config).await?;
+        match process_download_result(result, &args, config).await {
+            Ok(failed) => had_failures |= failed,
+            Err(e) => return Err(e),
+        }
+    }
+
+    if had_failures {
+        info!("Completed with some failures (--skip-failures enabled)");
     }
 
     Ok(())

@@ -12,7 +12,6 @@ use crate::compression::{self, CompressionAlgorithm};
 pub struct DownloadConfig {
     pub retry_count: u32,
     pub retry_delay: Duration,
-    pub concurrent_downloads: usize,
     pub _chunk_size: usize,
     pub compress: bool,
     pub compression_level: u32,
@@ -25,7 +24,6 @@ impl Default for DownloadConfig {
         Self {
             retry_count: 3,
             retry_delay: Duration::from_secs(5),
-            concurrent_downloads: 4,
             _chunk_size: 1024 * 1024, // 1MB chunks
             compress: false,
             compression_level: 6,
@@ -181,7 +179,7 @@ impl Downloader {
                 let dest_path = dest_dir.join(filename_fn(&url));
                 self.download_file(url.clone(), dest_path)
             })
-            .buffer_unordered(self.config.concurrent_downloads)
+            .buffer_unordered(1)
             .collect()
             .await
     }

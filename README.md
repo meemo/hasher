@@ -4,17 +4,6 @@ hasher is a program that can do multithreaded simultaneous hashing of files with
 only reading the file once. This means that in almost all cases the limiting factor in performance will be IO, and you
 won't have to waste time reading the same data multiple times if you need multiple hashing algorithms.
 
-## Commands
-
-hasher has three main commands:
-
-```shell
-hash     # Hash the files in a directory
-copy     # Copy files while hashing them
-verify   # Verify the stored hashes in the database
-download # Download and hash files
-```
-
 ## Building
 
 hasher requires a fairly modern version of stable Rust. All development is done on the latest stable release, and
@@ -28,8 +17,8 @@ To build, run the following at the root of the repository:
 cargo build -r
 ```
 
-Go ahead and get yourself a drink while this is running, it will take a while. After this is complete your binary will
-be located at `target/release/hasher` and can be moved wherever you desire, or leave it place and use `cargo run -r`.
+After this is complete your binary will be located at `target/release/hasher` and can be moved wherever you desire,
+or leave it in place and use `cargo run -r`.
 
 ### musl libc Builds
 
@@ -51,223 +40,152 @@ instructions from extensions that only exist on modern CPUs.
 
 ## Usage
 
-```shell
-Usage: hasher <COMMAND>
-
-Commands:
-  hash      Hash files in a directory
-  copy      Copy files while hashing them
-  verify    Verify files against stored hashes in the database
-  download  Download and hash file at the given URL
-  help      Print this message or the help of the given subcommand(s)
-
-Options:
-  -h, --help     Print help
-  -V, --version  Print version
-```
-
-### `hash`
+The basic structure for usage is:
 
 ```shell
-Usage: hasher hash [OPTIONS] [SOURCE]
-
-Arguments:
-  [SOURCE]  Directory to hash
-
-Options:
-  -v, --verbose...                 Increase logging verbosity
-  -q, --quiet...                   Decrease logging verbosity
-  -e, --continue-on-error
-  -s, --sql-only                   Only output to SQLite database (default: output to both SQLite and JSON)
-  -j, --json-only                  Only output to JSON (default: output to both SQLite and JSON)
-  -p, --pretty-json
-  -w, --use-wal
-  -c, --config-file <CONFIG_FILE>  [default: ./config.toml]
-  -n, --stdin
-      --max-depth <MAX_DEPTH>      [default: 20]
-      --no-follow-symlinks
-  -b, --breadth-first
-      --dry-run
-  -h, --help                       Print help
+hasher {command} {options} {directories}
 ```
 
-By default, hasher outputs both to JSON and the SQLite database. Use --sql-only or --json-only to restrict output to
-just one format.
+With all commands supporting the following basic options (though some may do nothing):
 
-### `verify`
+- `-v`/`--verbose`, `-q`/`--quiet`
+  - Control logging verbosity. Use `-vvv` for maximum output
+- `-e`/`--continue-on-error`
+  - Don't stop after encountering an error
+- `-s`/`--sql-only`
+  - Only output to SQLite database
+- `-j`/`--json-only`
+  - Only output to JSON
+- `-p`/`--pretty-json`
+  - Pretty print JSON output
+- `-c`/`--config-file`
+  - Path to config file (default: ./config.toml)
+- `--dry-run`
+  - Run without actually saving anything
+- `--retry-count`
+  - Number of retries for operations (default: 3)
+- `--retry-delay`
+  - Delay in seconds between retries (default: 5)
+- `--skip-failures`
+  - Skip failures instead of erroring out
+
+### `hash`: Hash Files/Directories
 
 ```shell
-Verify stored hashes in the database
-
-Usage: hasher verify [OPTIONS]
-
-Options:
-  -m, --mismatches-only            Only output when files fail to verify instead of outputting every file
-  -v, --verbose...                 Increase logging verbosity
-  -q, --quiet...                   Decrease logging verbosity
-  -e, --continue-on-error
-  -s, --sql-only                   Only output to SQLite database (default: output to both SQLite and JSON)
-  -j, --json-only                  Only output to JSON (default: output to both SQLite and JSON)
-  -p, --pretty-json
-  -w, --use-wal
-  -c, --config-file <CONFIG_FILE>  [default: ./config.toml]
-  -n, --stdin
-      --max-depth <MAX_DEPTH>      [default: 20]
-      --no-follow-symlinks
-  -b, --breadth-first
-      --dry-run
-  -h, --help                       Print help
+hasher hash [OPTIONS] [SOURCE]
 ```
 
-Verification works by checking all files stored in the database, showing their status in JSON format.
+Hash files in a directory. If no source is provided, the current directory is used.
 
-### `copy`
+Special options:
+- `--decompress`
+  - Decompress gzipped files before hashing
+- `--hash-both`
+  - Hash both compressed and decompressed content for gzipped files
+- `-n/--stdin`
+  - Hash data from stdin instead of files
+
+### `verify`: Verify Hashes
 
 ```shell
-Copy files while hashing them
-
-Usage: hasher copy [OPTIONS] <SOURCE> <DESTINATION>
-
-Arguments:
-  <SOURCE>       Source directory
-  <DESTINATION>  Destination directory
-
-Options:
-  -p, --store-source-path
-          Store source path instead of destination path in database
-  -z, --compress
-          Compress destination files with gzip
-      --compression-level <COMPRESSION_LEVEL>
-          Compression level (1-9 for gzip) [default: 6]
-      --hash-compressed
-          Hash the compressed file instead of uncompressed
-  -v, --verbose...
-          Increase logging verbosity
-  -q, --quiet...
-          Decrease logging verbosity
-  -e, --continue-on-error
-
-  -s, --sql-only
-          Only output to SQLite database (default: output to both SQLite and JSON)
-  -j, --json-only
-          Only output to JSON (default: output to both SQLite and JSON)
-  -p, --pretty-json
-
-  -w, --use-wal
-
-  -c, --config-file <CONFIG_FILE>
-          [default: ./config.toml]
-  -n, --stdin
-
-      --max-depth <MAX_DEPTH>
-          [default: 20]
-      --no-follow-symlinks
-
-  -b, --breadth-first
-
-      --dry-run
-
-  -h, --help
-          Print help
+hasher verify [OPTIONS]
 ```
 
-NOTE: Compression is currently not implemented.
+Verify files against stored hashes in the database.
 
-### `download`
+Special options:
+- `-m/--mismatches-only`: Only output when files fail to verify
+- `--decompress`: Decompress gzipped files before verifying
+- `--hash-both`: Verify both compressed and decompressed content
+
+### `copy`: Copy Files
 
 ```shell
-Download and hash file at the given URL
-
-Usage: hasher download [OPTIONS] <SOURCE> <DESTINATION>
-
-Arguments:
-  <SOURCE>       Source URL or path to file with URLs
-  <DESTINATION>  Destination directory
-
-Options:
-  -v, --verbose...                 Increase logging verbosity
-  -q, --quiet...                   Decrease logging verbosity
-  -e, --continue-on-error
-  -s, --sql-only                   Only output to SQLite database (default: output to both SQLite and JSON)
-  -j, --json-only                  Only output to JSON (default: output to both SQLite and JSON)
-  -p, --pretty-json
-  -w, --use-wal
-  -c, --config-file <CONFIG_FILE>  [default: ./config.toml]
-  -n, --stdin
-      --max-depth <MAX_DEPTH>      [default: 20]
-      --no-follow-symlinks
-  -b, --breadth-first
-      --dry-run
-  -h, --help                       Print help
+hasher copy [OPTIONS] <SOURCE> <DESTINATION>
 ```
 
-NOTE: Compression is currently not implemented.
+Copy files while hashing them.
 
-### Example Usage
+Special options:
+- `--store-source-path`: Store source path instead of destination path in database
+- `-z/--compress`: Compress files with gzip while copying
+- `--compression-level`: Gzip compression level (1-9, default: 6)
 
-Hash all files in the current directory (outputs both to JSON and SQLite by default):
+### `download`: Download Files
+
 ```shell
-hasher hash .
+hasher download [OPTIONS] <SOURCE> <DESTINATION>
 ```
 
-Hash files but only store in database:
-```shell
-hasher hash --sql-only .
-```
+Download and hash files. SOURCE can be either a URL or a file containing URLs (one per line).
 
-Hash files but only output as JSON:
-```shell
-hasher hash --json-only .
-```
-
-Verify all files in the database, showing only mismatches:
-```shell
-hasher verify -m
-```
+Special options:
+- `--no-clobber`: Do not replace already downloaded files
+- `-z/--compress`: Compress downloaded files with gzip
+- `--compression-level`: Gzip compression level (1-9, default: 6)
 
 ### Config File
 
 The config file (default `config.toml`) controls which hashes are calculated and database settings. See the example
 [`config.toml`](config.toml) in the repository root for all options.
 
-## Hashes
+## Supported Hashes
 
-The following hashes are supported by the program:
+The following hashes are supported:
 
 - CRC32
-- MD2
-- MD4
-- MD5
+- MD2, MD4, MD5
 - SHA-1
-- SHA-2
-  - SHA-224 through SHA-512
-- SHA-3
-  - SHA3-224 through SHA3-512
-- BLAKE2
-  - Blake2s256, Blake2b512
+- SHA-2 (SHA-224 through SHA-512)
+- SHA-3 (SHA3-224 through SHA3-512)
+- BLAKE2 (Blake2s256, Blake2b512)
 - BelT
-- Whirpool
-- Tiger
+- Whirlpool
+- Tiger/Tiger2
 - Streebog (GOST R 34.11-2012)
-- RIPEMD
+- RIPEMD (128/160/256/320)
 - FSB
 - SM3
 - GOST R 34.11-94
-- Grøstl (Groestl)
+- Grøstl
 - SHABAL
+
+## Testing
+
+There are some unit tests for the crucial bits of the which can be tested with:
+
+```shell
+cargo test
+```
+
+However the [`test.py`](test.py) script has been created to test that the major user-facing functions are working:
+
+```shell
+python3 test.py
+```
+
+The only requirements for this script are a reasonably modern version of Python 3.
+
+## Code Style
+
+hasher follows `rustfmt` code style, and it can be applied in a single command with:
+
+```shell
+rustfmt --edition 2021 src/*.rs src/commands/*.rs
+```
 
 ## Notes
 
 ### Memory Integrity
 
-While hasher being written in Rust (aside from the sqlite driver) makes it immune to memory safety bugs, hasher does not
-have any protections against any issues that may compromise memory integrity like cosmic bitflips. This is not a concern
-for most activities on servers that have ECC memory, however this is important to keep in mind if you are doing very
-large amounts of hashing on conventional computers with non-ECC memory. Trust, but verify.
+While hasher being written in Rust makes it immune to memory safety bugs, hasher does not have any protections against
+issues that may compromise memory integrity like cosmic bitflips. This is not a concern for most activities on servers
+that have ECC memory, however this is important to keep in mind if you are doing very large amounts of hashing on
+conventional computers with non-ECC memory. Trust, but verify.
 
-### Changelog/Version History
+### Changelog
 
-See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for details on all versions.
+See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for version history.
 
 ### Other
 

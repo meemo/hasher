@@ -27,6 +27,89 @@ pub enum HasherCommand {
     Download(HasherDownloadArgs),
 }
 
+#[derive(Parser, Debug, Clone)]
+pub struct HasherOptions {
+    #[clap(flatten)]
+    pub verbose: Verbosity<WarnLevel>,
+
+    /// Don't stop after encountering an error
+    #[arg(short = 'e', long)]
+    pub continue_on_error: bool,
+
+    /// Skip failures instead of erroring out (for downloads, etc)
+    #[arg(long)]
+    pub skip_failures: bool,
+
+    /// Number of retries for operations (downloads, etc)
+    #[arg(long, default_value_t = 3)]
+    pub retry_count: u32,
+
+    /// Delay in seconds between retries
+    #[arg(long, default_value_t = 5)]
+    pub retry_delay: u32,
+
+    /// Only output to SQLite database (default: output to both SQLite and JSON)
+    #[arg(short = 's', long)]
+    pub sql_only: bool,
+
+    /// Only output to JSON (default: output to both SQLite and JSON)
+    #[arg(short = 'j', long)]
+    pub json_only: bool,
+
+    /// Pretty print the json output
+    #[arg(short = 'p', long)]
+    pub pretty_json: bool,
+
+    /// Use sqlite Write Ahead Logging
+    #[arg(short = 'w', long)]
+    pub use_wal: bool,
+
+    /// The path to the config file
+    #[arg(short = 'c', long, default_value = "./config.toml")]
+    pub config_file: PathBuf,
+
+    /// Hash the "file" that's fed into stdin. The hashing path will become the "file name"
+    #[arg(short = 'n', long)]
+    pub stdin: bool,
+
+    /// Maximum number of directories to traverse
+    #[arg(long, default_value_t = 30)]
+    pub max_depth: usize,
+
+    /// Do not follow symlinks (useful in case there are loops)
+    #[arg(long)]
+    pub no_follow_symlinks: bool,
+
+    /// Hash all files in the top level directory first before lower level directories
+    #[arg(short = 'b', long)]
+    pub breadth_first: bool,
+
+    /// Run without actually saving anything
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Compress destination files with gzip
+    #[arg(short = 'z', long)]
+    pub compress: bool,
+
+    /// Compression level (1-9 for gzip)
+    #[arg(long, default_value_t = 6)]
+    #[arg(value_parser = clap::value_parser!(u32).range(1..=9))]
+    pub compression_level: u32,
+
+    /// Hash the compressed file instead of uncompressed
+    #[arg(long)]
+    pub hash_compressed: bool,
+
+    /// Decompress gzipped files before hashing
+    #[arg(long)]
+    pub decompress: bool,
+
+    /// Hash both compressed and decompressed content for gzipped files
+    #[arg(long)]
+    pub hash_both: bool,
+}
+
 #[derive(Parser, Debug)]
 pub struct HasherHashArgs {
     /// Directory to hash
@@ -44,60 +127,6 @@ pub struct HasherVerifyArgs {
 
     #[clap(flatten)]
     pub hash_options: HasherOptions,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct HasherOptions {
-    #[clap(flatten)]
-    pub verbose: Verbosity<WarnLevel>,
-
-    #[arg(short = 'e', long)]
-    pub continue_on_error: bool,
-
-    /// Only output to SQLite database (default: output to both SQLite and JSON)
-    #[arg(short = 's', long)]
-    pub sql_only: bool,
-
-    /// Only output to JSON (default: output to both SQLite and JSON)
-    #[arg(short = 'j', long)]
-    pub json_only: bool,
-
-    #[arg(short = 'p', long)]
-    pub pretty_json: bool,
-
-    #[arg(short = 'w', long)]
-    pub use_wal: bool,
-
-    #[arg(short = 'c', long, default_value = "./config.toml")]
-    pub config_file: PathBuf,
-
-    #[arg(short = 'n', long)]
-    pub stdin: bool,
-
-    #[arg(long, default_value_t = 20)]
-    pub max_depth: usize,
-
-    #[arg(long)]
-    pub no_follow_symlinks: bool,
-
-    #[arg(short = 'b', long)]
-    pub breadth_first: bool,
-
-    #[arg(long)]
-    pub dry_run: bool,
-
-    /// Compress destination files with gzip
-    #[arg(short = 'z', long)]
-    pub compress: bool,
-
-    /// Compression level (1-9 for gzip)
-    #[arg(long, default_value_t = 6)]
-    #[arg(value_parser = clap::value_parser!(u32).range(1..=9))]
-    pub compression_level: u32,
-
-    /// Hash the compressed file instead of uncompressed
-    #[arg(long)]
-    pub hash_compressed: bool,
 }
 
 #[derive(Parser, Debug)]

@@ -3,9 +3,8 @@ import shutil
 import subprocess
 import tempfile
 import gzip
-import http.server
-import socketserver
 import json
+import time
 
 
 CURRENT_DIR = os.getcwd()
@@ -83,6 +82,28 @@ def test_hash():
 
     result = run_hasher("hash", "--sql-only", TEST_FILES_DIR)
     assert result.returncode == 0, "SQL-only hash failed"
+
+    # Test compressed file handling
+    result = run_hasher("hash", "--decompress", TEST_FILES_DIR)
+    assert result.returncode == 0, "Decompressed hash failed"
+
+    # Verify both compressed and decompressed hashes
+    result = run_hasher("hash", "--decompress", "--hash-both", TEST_FILES_DIR)
+    assert result.returncode == 0, "Hash both failed"
+
+    # Parse output to verify we got both hashes
+    outputs = []
+    for line in result.stdout.splitlines():
+        if line.strip():
+            try:
+                data = json.loads(line)
+                outputs.append(data["file_path"])
+            except json.JSONDecodeError:
+                continue
+
+    compressed = [p for p in outputs if p.endswith(".gz")]
+    decompressed = [p for p in outputs if not p.endswith(".gz")]
+    assert compressed and decompressed, "Missing compressed or decompressed outputs"
 
 
 def test_verify():
@@ -202,6 +223,78 @@ def test_download():
         assert result.returncode == 0, "No-clobber download failed"
 
 
+def test_download_failures():
+    """Test download failure handling"""
+    print("\nTesting download failure handling...")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Test file with mix of valid and invalid URLs
+        url_file = os.path.join(tmpdir, "urls.txt")
+        with open(url_file, "w") as f:
+            f.write("https://raw.githubusercontent.com/rust-lang/rust/master/README.md\n")
+            f.write("https://invalid.example.com/nonexistent\n")  # Should fail
+            f.write("https://raw.githubusercontent.com/rust-lang/rust/master/COPYRIGHT\n")
+
+        # Test with skip-failures
+        result = run_hasher("download", "--skip-failures", url_file, tmpdir)
+        assert result.returncode == 0, "Download with skip-failures failed"
+
+        # Verify some files were downloaded despite failures
+        gh_dir = os.path.join(tmpdir, "raw.githubusercontent.com")
+        successful_files = 0
+        for root, _, files in os.walk(gh_dir):
+            successful_files += len(files)
+        assert successful_files > 0, "No files downloaded with skip-failures"
+
+        # Test retry count
+        start_time = time.time()
+        result = run_hasher(
+            "download",
+            "--skip-failures",
+            "--retry-count", "2",
+            "--retry-delay", "1",
+            "https://invalid.example.com/nonexistent",
+            tmpdir,
+            check_output=False
+        )
+        end_time = time.time()
+        assert 1 < end_time - start_time < 4, "Retry timing incorrect"
+
+        # Test without skip-failures
+        result = run_hasher(
+            "download",
+            url_file,
+            tmpdir,
+            check_output=False
+        )
+        assert result.returncode != 0, "Download should fail without skip-failures"
+
+
+def test_download_list():
+    """Test downloading from a list of URLs"""
+    print("\nTesting download from URL list...")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create a file with multiple URLs
+        url_file = os.path.join(tmpdir, "urls.txt")
+        with open(url_file, "w") as f:
+            f.write("https://raw.githubusercontent.com/rust-lang/rust/master/README.md\n")
+            f.write("https://raw.githubusercontent.com/rust-lang/rust/master/LICENSE-APACHE\n")
+            f.write("https://raw.githubusercontent.com/rust-lang/rust/master/LICENSE-MIT\n")
+
+        # Test downloading the list
+        result = run_hasher("download", url_file, tmpdir)
+        assert result.returncode == 0, "Download from URL list failed"
+
+        # Verify directory structure
+        gh_dir = os.path.join(tmpdir, "raw.githubusercontent.com", "rust-lang", "rust", "master")
+        expected_files = ["README.md", "LICENSE-APACHE", "LICENSE-MIT"]
+        for fname in expected_files:
+            fpath = os.path.join(gh_dir, fname)
+            assert os.path.exists(fpath), f"Missing downloaded file: {fname}"
+            assert os.path.getsize(fpath) > 0, f"Empty downloaded file: {fname}"
+
+
 def main():
     print("\nRunning hasher tests...")
 
@@ -218,6 +311,8 @@ def main():
         test_verify()
         test_copy()
         test_download()
+        test_download_failures()
+        test_download_list()
 
     except AssertionError as e:
         print(f"\nTest failed: {str(e)}")

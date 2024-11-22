@@ -8,6 +8,7 @@ use sqlx::{query_builder::QueryBuilder, Connection, SqliteConnection};
 use walkdir::WalkDir;
 
 use crate::configuration::{Config, HasherOptions};
+use crate::compression::{self, CompressionAlgorithm};
 use crate::utils::Error;
 use hasher::{HashConfig, Hasher};
 
@@ -95,8 +96,45 @@ pub async fn process_single_file(
     db_conn: &mut Option<SqliteConnection>,
 ) -> Result<(), Error> {
     let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
-    match hasher.hash_file(file_path) {
-        Ok((file_size, hashes)) => {
+    let compressor = compression::get_compressor(compression::CompressionType::Gzip, 6);
+
+    let process_file = |data: &[u8], _path: &Path| -> Result<(usize, Vec<(&str, Vec<u8>)>), Error> {
+        let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
+        hasher.hash_single_buffer(data)
+            .map(|hashes| (data.len(), hashes))
+            .map_err(Error::from)
+    };
+
+    let result = if args.decompress && compressor.is_compressed_path(file_path) {
+        let compressed_data = tokio::fs::read(file_path).await?;
+        let decompressed = compression::decompress_bytes(&compressed_data, compression::CompressionType::Gzip)?;
+
+        if args.hash_both {
+            let (comp_size, comp_hashes) = process_file(&compressed_data, file_path)?;
+            let (decomp_size, decomp_hashes) = process_file(&decompressed, file_path)?;
+
+            // Output both results
+            if !args.dry_run {
+                let do_sql = !args.json_only;
+                let do_json = !args.sql_only;
+
+                if do_sql {
+                    if let Some(conn) = db_conn {
+                        insert_hash_to_db(config, file_path, comp_size, &comp_hashes, conn).await?;
+                        let decomp_path = file_path.with_extension("");
+                        insert_hash_to_db(config, &decomp_path, decomp_size, &decomp_hashes, conn).await?;
+                    }
+                }
+
+                if do_json {
+                    output_json(file_path, comp_size, &comp_hashes, args.pretty_json);
+                    let decomp_path = file_path.with_extension("");
+                    output_json(&decomp_path, decomp_size, &decomp_hashes, args.pretty_json);
+                }
+            }
+            Ok(())
+        } else {
+            let (size, hashes) = process_file(&decompressed, file_path)?;
             log_hash_results(file_path, &hashes);
 
             if !args.dry_run {
@@ -105,34 +143,51 @@ pub async fn process_single_file(
 
                 if do_sql {
                     if let Some(conn) = db_conn {
-                        if let Err(e) =
-                            insert_hash_to_db(config, file_path, file_size, &hashes, conn).await
-                        {
-                            let err_msg =
-                                format!("Database error for {}: {}", file_path.display(), e);
-                            if !args.continue_on_error {
-                                return Err(e);
-                            }
-                            error!("{}", err_msg);
-                        }
+                        insert_hash_to_db(config, file_path, size, &hashes, conn).await?;
                     }
                 }
 
                 if do_json {
-                    output_json(file_path, file_size, &hashes, args.pretty_json);
+                    output_json(file_path, size, &hashes, args.pretty_json);
                 }
             }
             Ok(())
         }
-        Err(e) => {
-            let err_msg = format!("Failed to hash {}: {}", file_path.display(), e);
-            if args.continue_on_error {
-                error!("{}", err_msg);
+    } else {
+        match hasher.hash_file(file_path) {
+            Ok((file_size, hashes)) => {
+                log_hash_results(file_path, &hashes);
+
+                if !args.dry_run {
+                    let do_sql = !args.json_only;
+                    let do_json = !args.sql_only;
+
+                    if do_sql {
+                        if let Some(conn) = db_conn {
+                            insert_hash_to_db(config, file_path, file_size, &hashes, conn).await?;
+                        }
+                    }
+
+                    if do_json {
+                        output_json(file_path, file_size, &hashes, args.pretty_json);
+                    }
+                }
                 Ok(())
-            } else {
-                Err(Error::from(e))
             }
+            Err(e) => Err(Error::from(e))
         }
+    };
+
+    if let Err(e) = result {
+        let err_msg = format!("Failed to hash {}: {}", file_path.display(), e);
+        if args.continue_on_error {
+            error!("{}", err_msg);
+            Ok(())
+        } else {
+            Err(e)
+        }
+    } else {
+        result
     }
 }
 
