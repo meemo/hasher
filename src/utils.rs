@@ -2,6 +2,7 @@ use std::fmt;
 use std::io;
 
 use sqlx;
+use tokio::task::JoinError;
 
 #[derive(Debug)]
 pub enum Error {
@@ -13,6 +14,7 @@ pub enum Error {
     DbLocked,
     Config(String),
     Download(String),
+    Join(String),
 }
 
 impl From<io::Error> for Error {
@@ -67,6 +69,7 @@ impl fmt::Display for Error {
             Error::DbLocked => write!(f, "Database is locked"),
             Error::Config(e) => write!(f, "Configuration error: {}", e),
             Error::Download(e) => write!(f, "Download error: {}", e),
+            Error::Join(e) => write!(f, "Join error: {}", e),
         }
     }
 }
@@ -77,6 +80,16 @@ impl std::error::Error for Error {
             Error::IO(e) => Some(e),
             Error::Database(e) => Some(e),
             _ => None,
+        }
+    }
+}
+
+impl From<JoinError> for Error {
+    fn from(e: JoinError) -> Self {
+        if e.is_panic() {
+            Error::ThreadPanic
+        } else {
+            Error::Join(e.to_string())
         }
     }
 }

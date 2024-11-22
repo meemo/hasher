@@ -37,45 +37,6 @@ pub struct HasherHashArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct HasherCopyArgs {
-    /// Source directory
-    pub source: PathBuf,
-    /// Destination directory
-    pub destination: PathBuf,
-
-    /// Store source path instead of destination path in database
-    #[arg(short = 'p', long)]
-    pub store_source_path: bool,
-
-    /// Compress destination files with gzip
-    #[arg(short = 'z', long)]
-    pub compress: bool,
-
-    /// Compression level (1-9 for gzip)
-    #[arg(long, default_value_t = 6)]
-    #[arg(value_parser = clap::value_parser!(u32).range(1..=9))]
-    pub compression_level: u32,
-
-    /// Hash the compressed file instead of uncompressed
-    #[arg(long)]
-    pub hash_compressed: bool,
-
-    #[clap(flatten)]
-    pub hash_options: HasherOptions,
-}
-
-#[derive(Parser, Debug)]
-pub struct HasherDownloadArgs {
-    /// Source URL or path to file with URLs
-    pub source: PathBuf,
-    /// Destination directory
-    pub destination: PathBuf,
-
-    #[clap(flatten)]
-    pub hash_options: HasherOptions,
-}
-
-#[derive(Parser, Debug)]
 pub struct HasherVerifyArgs {
     /// Only output when files fail to verify instead of outputting every file
     #[arg(short = 'm', long)]
@@ -124,6 +85,49 @@ pub struct HasherOptions {
 
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Compress destination files with gzip
+    #[arg(short = 'z', long)]
+    pub compress: bool,
+
+    /// Compression level (1-9 for gzip)
+    #[arg(long, default_value_t = 6)]
+    #[arg(value_parser = clap::value_parser!(u32).range(1..=9))]
+    pub compression_level: u32,
+
+    /// Hash the compressed file instead of uncompressed
+    #[arg(long)]
+    pub hash_compressed: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct HasherCopyArgs {
+    /// Source directory
+    pub source: PathBuf,
+    /// Destination directory
+    pub destination: PathBuf,
+
+    /// Store source path instead of destination path in database
+    #[arg(short = 'p', long)]
+    pub store_source_path: bool,
+
+    #[clap(flatten)]
+    pub hash_options: HasherOptions,
+}
+
+#[derive(Parser, Debug)]
+pub struct HasherDownloadArgs {
+    /// Source URL or path to file with URLs
+    pub source: PathBuf,
+    /// Destination directory
+    pub destination: PathBuf,
+
+    /// Do not replace already downloaded files
+    #[arg(long)]
+    pub no_clobber: bool,
+
+    #[clap(flatten)]
+    pub hash_options: HasherOptions,
 }
 
 #[derive(Deserialize)]

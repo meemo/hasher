@@ -4,6 +4,7 @@ use log::{error, info, warn};
 use serde_json::Value;
 use sqlx::Connection;
 
+use crate::compression::{self, CompressionAlgorithm};
 use crate::configuration::{Config, HasherVerifyArgs};
 use crate::database::{get_all_paths, get_file_hashes};
 use crate::utils::Error;
@@ -158,22 +159,62 @@ async fn verify_file(
     }
 
     let (current_size, current_hashes) = if !path.exists() {
-        info!("File not found: {}", path.display());
-        (None, (Vec::new(), Vec::new()))
+        let gz_path = path.with_extension(format!(
+            "{}.gz",
+            path.extension().unwrap_or_default().to_string_lossy()
+        ));
+
+        if gz_path.exists() {
+            let compressed_data = tokio::fs::read(&gz_path).await?;
+            let data = compression::decompress_bytes(
+                &compressed_data,
+                compression::CompressionType::Gzip,
+            )?;
+
+            let mut hasher = Hasher::new(HashConfig {
+                crc32: true,
+                sha256: true,
+                ..Default::default()
+            });
+
+            let hashes = hasher.hash_single_buffer(&data)?;
+            (Some(data.len()), extract_current_hashes(&hashes))
+        } else {
+            info!("File not found: {}", path.display());
+            (None, (Vec::new(), Vec::new()))
+        }
     } else {
-        let mut hasher = Hasher::new(HashConfig {
-            crc32: true,
-            sha256: true,
-            ..Default::default()
-        });
-        info!("Verifying {}", path.display());
-        let (size, hashes) = hasher.hash_file(path)?;
-        (Some(size), extract_current_hashes(&hashes))
+        let compressor = compression::get_compressor(compression::CompressionType::Gzip, 6);
+
+        if compressor.is_compressed_path(path) {
+            let compressed_data = tokio::fs::read(path).await?;
+            let data = compression::decompress_bytes(
+                &compressed_data,
+                compression::CompressionType::Gzip,
+            )?;
+
+            let mut hasher = Hasher::new(HashConfig {
+                crc32: true,
+                sha256: true,
+                ..Default::default()
+            });
+
+            let hashes = hasher.hash_single_buffer(&data)?;
+            (Some(data.len()), extract_current_hashes(&hashes))
+        } else {
+            let mut hasher = Hasher::new(HashConfig {
+                crc32: true,
+                sha256: true,
+                ..Default::default()
+            });
+            info!("Verifying {}", path.display());
+            let (size, hashes) = hasher.hash_file(path)?;
+            (Some(size), extract_current_hashes(&hashes))
+        }
     };
 
     let (current_crc32, current_sha256) = current_hashes;
     let failed_hash = if current_size.is_none() {
-        // Use CRC32 for file not found case
         Some(("crc32".to_string(), Vec::new(), stored_crc32))
     } else {
         validate_hashes(

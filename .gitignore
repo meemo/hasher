@@ -15,9 +15,13 @@ target/
 *.pdb
 *.rs.bk
 
-# Hash/test outputs
-data/
-test/
+# Hashing files
+data*/
 *.db*
-zero
-*.tar.gz
+*.gz
+
+# Test files
+test/
+
+# Other
+*.patch

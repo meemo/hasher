@@ -9,6 +9,7 @@ use log::{error, warn};
 use crate::configuration::{HasherCli, HasherCommand};
 
 mod commands;
+mod compression;
 mod configuration;
 mod database;
 mod downloader;

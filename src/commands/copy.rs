@@ -7,6 +7,7 @@ use std::path::Path;
 use log::{error, info};
 use walkdir::WalkDir;
 
+use crate::compression::{self, CompressionAlgorithm};
 use crate::configuration::{Config, HasherCopyArgs};
 use crate::database::insert_single_hash;
 use crate::utils::Error;
@@ -69,14 +70,45 @@ async fn copy_and_hash_file(
         fs::create_dir_all(parent)?;
     }
 
-    let reader = BufReader::new(File::open(source)?);
-    let writer = BufWriter::new(File::create(dest)?);
-    io::copy(&mut BufReader::new(reader), &mut BufWriter::new(writer))?;
+    let final_dest = if args.hash_options.compress {
+        let compressor = compression::get_compressor(
+            compression::CompressionType::Gzip,
+            args.hash_options.compression_level,
+        );
+        dest.with_extension(format!(
+            "{}{}",
+            dest.extension().unwrap_or_default().to_string_lossy(),
+            compressor.extension()
+        ))
+    } else {
+        dest.to_path_buf()
+    };
 
     if !args.hash_options.dry_run {
-        let path_to_hash = if args.store_source_path { source } else { dest };
-        let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
+        if args.hash_options.compress {
+            let source_data = fs::read(source)?;
+            let compressed = compression::compress_bytes(
+                &source_data,
+                compression::CompressionType::Gzip,
+                args.hash_options.compression_level,
+            )
+            .map_err(Error::IO)?;
+            fs::write(&final_dest, compressed)?;
+        } else {
+            let reader = BufReader::new(File::open(source)?);
+            let writer = BufWriter::new(File::create(&final_dest)?);
+            io::copy(&mut BufReader::new(reader), &mut BufWriter::new(writer))?;
+        }
 
+        let path_to_hash = if args.store_source_path {
+            source
+        } else if args.hash_options.hash_compressed {
+            &final_dest
+        } else {
+            source
+        };
+
+        let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
         match hasher.hash_file(path_to_hash) {
             Ok((file_size, hashes)) => {
                 process_hash_results(path_to_hash, file_size, &hashes, args, config, db_conn)
