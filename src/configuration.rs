@@ -108,7 +108,7 @@ pub struct HasherCopyArgs {
     pub destination: PathBuf,
 
     /// Store source path instead of destination path in database
-    #[arg(short = 'p', long)]
+    #[arg(long)]
     pub store_source_path: bool,
 
     #[clap(flatten)]

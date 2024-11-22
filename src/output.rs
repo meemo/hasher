@@ -5,10 +5,10 @@ use std::time::Duration;
 use log::{error, info};
 use serde_json::json;
 use sqlx::{query_builder::QueryBuilder, Connection, SqliteConnection};
+use walkdir::WalkDir;
 
 use crate::configuration::{Config, HasherOptions};
 use crate::utils::Error;
-use crate::walkthedir;
 use hasher::{HashConfig, Hasher};
 
 const MAX_DB_RETRIES: u32 = 3;
@@ -164,7 +164,14 @@ pub async fn process_directory(
     };
 
     let mut file_count = 0;
-    for entry in walkthedir!(path_to_hash, args) {
+    let walker = WalkDir::new(path_to_hash)
+        .min_depth(0)
+        .max_depth(args.max_depth)
+        .follow_links(!args.no_follow_symlinks)
+        .contents_first(!args.breadth_first)
+        .sort_by_file_name();
+
+    for entry in walker {
         if let Ok(entry) = entry {
             if !entry.path().is_dir() {
                 file_count += 1;

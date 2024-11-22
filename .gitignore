@@ -22,6 +22,8 @@ data*/
 
 # Test files
 test/
+__pycache__/
+*.pyc
 
 # Other
 *.patch

@@ -93,35 +93,3 @@ impl From<JoinError> for Error {
         }
     }
 }
-
-#[macro_export]
-macro_rules! arclock {
-    ($self:ident) => {
-        $self.lock().unwrap()
-    };
-}
-
-#[macro_export]
-macro_rules! startthread {
-    ($threads:ident, $buffer:ident, $hash_mutex:ident) => {
-        let buffer_clone = $buffer.clone();
-        let hash_clone = $hash_mutex.clone();
-
-        $threads.push(thread::spawn(move || {
-            hash_clone.lock()?.update(buffer_clone.read()?.as_slice());
-            Ok(())
-        }));
-    };
-}
-
-#[macro_export]
-macro_rules! walkthedir {
-    ($path:expr, $args:expr) => {
-        walkdir::WalkDir::new($path)
-            .min_depth(0)
-            .max_depth($args.max_depth)
-            .follow_links(!$args.no_follow_symlinks)
-            .contents_first(!$args.breadth_first)
-            .sort_by_file_name()
-    };
-}

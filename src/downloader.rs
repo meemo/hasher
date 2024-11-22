@@ -126,6 +126,14 @@ impl Downloader {
             return result;
         }
 
+        // Create parent directories before attempting download
+        if let Some(parent) = result.path.parent() {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                result.error = Some(format!("Failed to create directories: {}", e));
+                return result;
+            }
+        }
+
         for attempt in 0..=self.config.retry_count {
             if attempt > 0 {
                 tokio::time::sleep(self.config.retry_delay).await;

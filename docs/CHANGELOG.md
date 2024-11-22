@@ -1,5 +1,13 @@
 # Changelog/Version History
 
+## 0.8.6: Add tests, fix bugs
+
+- Implement testing
+- Fixed a bug with `--store-source-path` using the short `-s` which is already in use
+- Fixed a bug with `download` not creating the directory structures it should have been
+- Clean up lib.rs a bit
+- Remove excess macros
+
 ## 0.8.5: Implement compression, download changes
 
 - Implement compression for `copy` and `download`, as well as support for decompression in `verify`

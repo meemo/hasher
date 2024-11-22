@@ -72,3 +72,48 @@ pub fn decompress_bytes(bytes: &[u8], algorithm: CompressionType) -> io::Result<
     compressor.decompress_file(&mut reader, &mut output)?;
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gzip_compression() {
+        let data = b"test compression data".repeat(100);
+        let compressed = compress_bytes(&data, CompressionType::Gzip, 6).unwrap();
+        let decompressed = decompress_bytes(&compressed, CompressionType::Gzip).unwrap();
+        assert_eq!(data.to_vec(), decompressed);
+    }
+
+    #[test]
+    fn test_compression_levels() {
+        let data = b"test compression data".repeat(100);
+        let high_compressed = compress_bytes(&data, CompressionType::Gzip, 9).unwrap();
+        let low_compressed = compress_bytes(&data, CompressionType::Gzip, 1).unwrap();
+
+        // Higher compression level should generally produce smaller output
+        assert!(high_compressed.len() <= low_compressed.len());
+    }
+
+    #[test]
+    fn test_compression_edge_cases() {
+        // Test empty input
+        let empty = b"";
+        let compressed = compress_bytes(empty, CompressionType::Gzip, 6).unwrap();
+        let decompressed = decompress_bytes(&compressed, CompressionType::Gzip).unwrap();
+        assert_eq!(empty.to_vec(), decompressed);
+
+        // Test single byte
+        let single = b"x";
+        let compressed = compress_bytes(single, CompressionType::Gzip, 6).unwrap();
+        let decompressed = decompress_bytes(&compressed, CompressionType::Gzip).unwrap();
+        assert_eq!(single.to_vec(), decompressed);
+
+        // Test repeating pattern (highly compressible)
+        let repeating = b"abcdef".repeat(1000);
+        let compressed = compress_bytes(&repeating, CompressionType::Gzip, 6).unwrap();
+        assert!(compressed.len() < repeating.len());
+        let decompressed = decompress_bytes(&compressed, CompressionType::Gzip).unwrap();
+        assert_eq!(repeating.to_vec(), decompressed);
+    }
+}
