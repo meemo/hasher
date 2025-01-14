@@ -1,5 +1,10 @@
 # Changelog/Version History
 
+## 0.8.8: Download improvements
+
+- Download changes:
+  - Downloading from a list file will no longer wait until the list is downloaded to display json
+
 ## 0.8.7: Download improvements, more tests
 
 - `--skip-failures`, etc implemented for `download`

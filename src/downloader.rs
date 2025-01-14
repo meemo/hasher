@@ -2,8 +2,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use futures::StreamExt;
-use log::{info, warn};
+use futures::{StreamExt, stream::BoxStream};
+use log::{debug, info, trace, warn};
 use reqwest::Client;
 
 use crate::compression::{self, CompressionAlgorithm};
@@ -12,10 +12,8 @@ use crate::compression::{self, CompressionAlgorithm};
 pub struct DownloadConfig {
     pub retry_count: u32,
     pub retry_delay: Duration,
-    pub _chunk_size: usize,
     pub compress: bool,
     pub compression_level: u32,
-    pub _hash_compressed: bool,
     pub no_clobber: bool,
 }
 
@@ -24,10 +22,8 @@ impl Default for DownloadConfig {
         Self {
             retry_count: 3,
             retry_delay: Duration::from_secs(5),
-            _chunk_size: 1024 * 1024, // 1MB chunks
             compress: false,
             compression_level: 6,
-            _hash_compressed: false,
             no_clobber: false,
         }
     }
@@ -58,25 +54,22 @@ impl Downloader {
     }
 
     async fn process_download_buffer(&self, buffer: Vec<u8>) -> io::Result<Vec<u8>> {
-        if self.config.compress {
-            let compressor = compression::get_compressor(
-                compression::CompressionType::Gzip,
-                self.config.compression_level,
-            );
-
-            tokio::task::spawn_blocking(move || {
-                use std::io::Cursor;
-                let mut reader = Cursor::new(&buffer);
-                let mut writer = Vec::new();
-                compressor
-                    .compress_file(&mut reader, &mut writer)
-                    .map(|_| writer)
-            })
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
-        } else {
-            Ok(buffer)
+        if !self.config.compress {
+            return Ok(buffer);
         }
+
+        let compressor = compression::get_compressor(
+            compression::CompressionType::Gzip,
+            self.config.compression_level,
+        );
+
+        tokio::task::spawn_blocking(move || {
+            let mut writer = Vec::new();
+            compressor.compress_file(&mut std::io::Cursor::new(&buffer), &mut writer)?;
+            Ok(writer)
+        })
+        .await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
     }
 
     async fn attempt_download(
@@ -84,10 +77,14 @@ impl Downloader {
         url: &str,
         dest_path: &Path,
     ) -> Result<(u64, PathBuf), Box<dyn std::error::Error>> {
+        debug!("Attempting download of {}", url);
+        trace!("Destination path: {}", dest_path.display());
+
         let response = self.client.get(url).send().await?;
         response.error_for_status_ref()?;
 
         let total_size = response.content_length().unwrap_or(0);
+        debug!("Content length: {} bytes", total_size);
         let mut downloaded = 0u64;
         let mut buffer = Vec::new();
         let mut stream = response.bytes_stream();
@@ -100,17 +97,21 @@ impl Downloader {
             if downloaded % (5 * 1024 * 1024) == 0 {
                 info!("Downloaded {}/{} bytes for {}", downloaded, total_size, url);
             }
+            trace!("Downloaded chunk of {} bytes", chunk.len());
         }
 
+        debug!("Download complete, processing buffer");
         let processed_buffer = self.process_download_buffer(buffer).await?;
+        debug!("Writing {} bytes to {}", processed_buffer.len(), dest_path.display());
         tokio::fs::write(dest_path, processed_buffer).await?;
 
         Ok((downloaded, dest_path.to_path_buf()))
     }
 
     pub async fn download_file(&self, url: String, dest_path: PathBuf) -> DownloadResult {
+        debug!("Starting download for {}", url);
         let mut result = DownloadResult {
-            url,
+            url: url.clone(),
             path: dest_path,
             size: 0,
             success: false,
@@ -119,13 +120,19 @@ impl Downloader {
 
         // Check if file exists when no-clobber is enabled
         if self.config.no_clobber && result.path.exists() {
+            debug!("File exists and --no-clobber is enabled, skipping {}", url);
             result.success = true;
             result.error = Some("File exists, skipping download".to_string());
+            // Get the file size for skipped files
+            if let Ok(metadata) = std::fs::metadata(&result.path) {
+                result.size = metadata.len();
+            }
             return result;
         }
 
         // Create parent directories before attempting download
         if let Some(parent) = result.path.parent() {
+            debug!("Creating parent directories: {}", parent.display());
             if let Err(e) = tokio::fs::create_dir_all(parent).await {
                 result.error = Some(format!("Failed to create directories: {}", e));
                 return result;
@@ -134,6 +141,7 @@ impl Downloader {
 
         for attempt in 0..=self.config.retry_count {
             if attempt > 0 {
+                debug!("Retry attempt {} for {}", attempt, &url);
                 tokio::time::sleep(self.config.retry_delay).await;
             }
 
@@ -166,22 +174,32 @@ impl Downloader {
         urls: Vec<String>,
         dest_dir: P,
         filename_fn: F,
-    ) -> Vec<DownloadResult>
+    ) -> BoxStream<'_, DownloadResult>
     where
         P: AsRef<Path>,
         F: Fn(&str) -> PathBuf + Send + Sync + 'static,
     {
         let dest_dir = dest_dir.as_ref().to_path_buf();
-        tokio::fs::create_dir_all(&dest_dir).await.ok();
+
+        if let Err(e) = tokio::fs::create_dir_all(&dest_dir).await {
+            return futures::stream::once(async move {
+                DownloadResult {
+                    url: "".to_string(),
+                    path: dest_dir,
+                    size: 0,
+                    success: false,
+                    error: Some(format!("Failed to create directory: {}", e)),
+                }
+            }).boxed();
+        }
 
         futures::stream::iter(urls)
-            .map(|url| {
+            .map(move |url| {
                 let dest_path = dest_dir.join(filename_fn(&url));
-                self.download_file(url.clone(), dest_path)
+                async move { self.download_file(url, dest_path).await }
             })
             .buffer_unordered(1)
-            .collect()
-            .await
+            .boxed()
     }
 }
 
