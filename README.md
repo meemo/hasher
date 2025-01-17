@@ -60,6 +60,8 @@ With all commands supporting the following basic options (though some may do not
   - Pretty print JSON output
 - `-c`/`--config-file`
   - Path to config file (default: ./config.toml)
+- `-w`/`--use-wal`
+  - Use sqlite Write Ahead Logging
 - `--dry-run`
   - Run without actually saving anything
 - `--retry-count`
@@ -68,6 +70,24 @@ With all commands supporting the following basic options (though some may do not
   - Delay in seconds between retries (default: 5)
 - `--skip-failures`
   - Skip failures instead of erroring out
+- `--max-depth`
+  - Maximum number of directories to traverse (default: 30)
+- `--no-follow-symlinks`
+  - Do not follow symlinks (useful in case there are loops)
+- `-b`/`--breadth-first`
+  - Hash all files in the top level directory first before lower level directories
+- `--db-path`
+  - Override the database path from config
+- `-z`/`--compress`
+  - Compress files when writing to disk (for copy/download)
+- `--compression-level`
+  - Compression level (1-9, default: 6)
+- `--hash-compressed`
+  - Hash the compressed file instead of uncompressed
+- `--decompress`
+  - Decompress gzip compressed files before hashing
+- `--hash-both`
+  - Hash both compressed and decompressed content for compressed files
 
 ### `hash`: Hash Files/Directories
 
@@ -78,11 +98,7 @@ hasher hash [OPTIONS] [SOURCE]
 Hash files in a directory. If no source is provided, the current directory is used.
 
 Special options:
-- `--decompress`
-  - Decompress gzipped files before hashing
-- `--hash-both`
-  - Hash both compressed and decompressed content for gzipped files
-- `-n/--stdin`
+- `-n`/`--stdin`
   - Hash data from stdin instead of files
 
 ### `verify`: Verify Hashes
@@ -94,9 +110,8 @@ hasher verify [OPTIONS]
 Verify files against stored hashes in the database.
 
 Special options:
-- `-m/--mismatches-only`: Only output when files fail to verify
-- `--decompress`: Decompress gzipped files before verifying
-- `--hash-both`: Verify both compressed and decompressed content
+- `-m`/`--mismatches-only`
+  - Only output when files fail to verify
 
 ### `copy`: Copy Files
 
@@ -107,9 +122,12 @@ hasher copy [OPTIONS] <SOURCE> <DESTINATION>
 Copy files while hashing them.
 
 Special options:
-- `--store-source-path`: Store source path instead of destination path in database
-- `-z/--compress`: Compress files with gzip while copying
-- `--compression-level`: Gzip compression level (1-9, default: 6)
+- `--store-source-path`
+  - Store source path instead of destination path in database
+- `--skip-existing`
+  - Skip copying files that already exist in the destination
+- `--no-hash-existing`
+  - Skip hash comparison when checking existing files (only check if it exists/size)
 
 ### `download`: Download Files
 
@@ -120,9 +138,8 @@ hasher download [OPTIONS] <SOURCE> <DESTINATION>
 Download and hash files. SOURCE can be either a URL or a file containing URLs (one per line).
 
 Special options:
-- `--no-clobber`: Do not replace already downloaded files
-- `-z/--compress`: Compress downloaded files with gzip
-- `--compression-level`: Gzip compression level (1-9, default: 6)
+- `--no-clobber`
+  - Do not replace already downloaded files
 
 ### Config File
 

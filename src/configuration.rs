@@ -88,6 +88,10 @@ pub struct HasherOptions {
     #[arg(long)]
     pub dry_run: bool,
 
+    /// Override the database path from config
+    #[arg(long)]
+    pub db_path: Option<PathBuf>,
+
     /// Compress destination files with gzip
     #[arg(short = 'z', long)]
     pub compress: bool,
@@ -139,6 +143,14 @@ pub struct HasherCopyArgs {
     /// Store source path instead of destination path in database
     #[arg(long)]
     pub store_source_path: bool,
+
+    /// Skip copying files that already exist in the destination
+    #[arg(long)]
+    pub skip_existing: bool,
+
+    /// Skip hash comparison when checking existing files (only check if it exists/size)
+    #[arg(long)]
+    pub no_hash_existing: bool,
 
     #[clap(flatten)]
     pub hash_options: HasherOptions,
@@ -223,12 +235,18 @@ pub struct Config {
     pub hashes: Hashes,
 }
 
-pub fn get_config(path: &Path) -> Result<Config, Error> {
+pub fn get_config(path: &Path, db_path_override: Option<&Path>) -> Result<Config, Error> {
     let config_str = fs::read_to_string(path)
         .map_err(|e| Error::Config(format!("Failed to read config file: {}", e)))?;
 
-    toml::from_str(&config_str)
-        .map_err(|e| Error::Config(format!("Invalid config file format: {}", e)))
+    let mut config: Config = toml::from_str(&config_str)
+        .map_err(|e| Error::Config(format!("Invalid config file format: {}", e)))?;
+
+    if let Some(db_path) = db_path_override {
+        config.database.db_string = format!("sqlite://{}", db_path.display());
+    }
+
+    Ok(config)
 }
 
 impl From<&Hashes> for HashConfig {

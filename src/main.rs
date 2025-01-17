@@ -45,7 +45,7 @@ async fn main() {
 
     setup_logging(&hash_options.verbose);
 
-    let config = match configuration::get_config(config_file) {
+    let config = match configuration::get_config(config_file, hash_options.db_path.as_deref()) {
         Ok(config) => config,
         Err(e) => {
             error!("Configuration error: {}", e);

@@ -1,9 +1,20 @@
 # Changelog/Version History
 
+## 0.8.9: Copy improvements, DB override option
+
+- Add `--db-path` option to override the database path in the config file
+- Add `--skip-existing` and `--no-hash-existing` options for `copy` to not copy files that already exist in the target
+directory
+- Update README to contain all available CLI options
+- Minor code cleanup
+
 ## 0.8.8: Download improvements
 
 - Download changes:
-  - Downloading from a list file will no longer wait until the list is downloaded to display json
+  - Downloading from a URL list file will no longer wait until the list is downloaded to display json
+  - JSON output improved
+  - Handle errors relating to downloading from URL list files
+- Minor code cleanup
 
 ## 0.8.7: Download improvements, more tests
 
