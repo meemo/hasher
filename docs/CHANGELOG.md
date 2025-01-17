@@ -1,5 +1,9 @@
 # Changelog/Version History
 
+## 0.8.10: Bug fix: Consistent database initialization
+
+- Only `hash` would initialize databases that don't exist, now all commands do
+
 ## 0.8.9: Copy improvements, DB override option
 
 - Add `--db-path` option to override the database path in the config file
