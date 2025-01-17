@@ -53,10 +53,11 @@ async fn main() {
         }
     };
 
+    // Initialize database for commands that need it
     let should_close_wal = match &args.command {
         HasherCommand::Hash(args) => {
-            if !args.hash_options.json_only {
-                // Initialize DB if we're not JSON-only
+            let needs_db = !args.hash_options.json_only;
+            if needs_db {
                 if let Err(e) = database::init_database(
                     &config.database.db_string,
                     &config.database.table_name,
@@ -81,9 +82,39 @@ async fn main() {
                 exit(1);
             }
 
-            !args.hash_options.json_only && args.hash_options.use_wal
+            needs_db && args.hash_options.use_wal
         }
-        _ => false,
+        HasherCommand::Download(args) => {
+            // Download command needs database access unless json_only is set
+            let needs_db = !args.hash_options.json_only;
+            if needs_db {
+                if let Err(e) = database::init_database(
+                    &config.database.db_string,
+                    &config.database.table_name,
+                    false, // Don't use WAL for read-only operations
+                )
+                .await
+                {
+                    error!("Database initialization error: {}", e);
+                    exit(1);
+                }
+            }
+            false // No need to close WAL since we didn't enable it
+        }
+        HasherCommand::Verify(_) | HasherCommand::Copy(_) => {
+            // These commands always need database access
+            if let Err(e) = database::init_database(
+                &config.database.db_string,
+                &config.database.table_name,
+                false, // Don't use WAL for read-only operations
+            )
+            .await
+            {
+                error!("Database initialization error: {}", e);
+                exit(1);
+            }
+            false // No need to close WAL since we didn't enable it
+        }
     };
 
     let result = match args.command {
