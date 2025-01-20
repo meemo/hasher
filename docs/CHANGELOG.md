@@ -1,5 +1,15 @@
 # Changelog/Version History
 
+## 0.8.12: Bug fix: Arguments properly implemented
+
+- There were many issues with arguments not behaving properly now fixed:
+  - Fixed stdin handling to properly respect json_only and sql_only flags
+  - Fixed hash_compressed option handling in all commands
+  - Made compression handling consistent across hash, verify, and copy commands
+  - Fixed decompression handling in copy command
+  - Fixed compression-related argument handling in file existence checks
+  - Fixed verify command to properly give compressed hashes
+
 ## 0.8.11: Bug fixes, copy improvements, general changes
 
 - `--hash-both` is now properly implemented across all commands

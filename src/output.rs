@@ -107,8 +107,18 @@ pub async fn process_single_file(
                 .map_err(Error::from)
         };
 
-    let result = if compressor.is_compressed_path(file_path) {
-        let compressed_data = tokio::fs::read(file_path).await?;
+    let result = if compressor.is_compressed_path(file_path) || args.hash_compressed {
+        let compressed_data = if compressor.is_compressed_path(file_path) {
+            tokio::fs::read(file_path).await?
+        } else {
+            let data = tokio::fs::read(file_path).await?;
+            compression::compress_bytes(
+                &data,
+                compression::CompressionType::Gzip,
+                args.compression_level,
+            )
+            .map_err(Error::IO)?
+        };
 
         if args.hash_both {
             // Hash compressed state
@@ -228,7 +238,8 @@ pub async fn process_single_file(
 pub async fn process_stdin(
     config: &Config,
     file_path: &str,
-    conn: &mut SqliteConnection,
+    conn: &mut Option<SqliteConnection>,
+    args: &HasherOptions,
 ) -> Result<(), Error> {
     let mut buffer = Vec::new();
     std::io::stdin().read_to_end(&mut buffer)?;
@@ -236,7 +247,23 @@ pub async fn process_stdin(
     let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
     let hashes = hasher.hash_single_buffer(&buffer)?;
 
-    insert_hash_to_db(config, Path::new(file_path), buffer.len(), &hashes, conn).await?;
+    let do_sql = !args.json_only;
+    let do_json = !args.sql_only;
+
+    if do_sql {
+        if let Some(conn) = conn {
+            insert_hash_to_db(config, Path::new(file_path), buffer.len(), &hashes, conn).await?;
+        }
+    }
+
+    if do_json {
+        output_json(
+            Path::new(file_path),
+            buffer.len(),
+            &hashes,
+            args.pretty_json,
+        );
+    }
 
     Ok(())
 }
