@@ -235,22 +235,22 @@ def test_download_failures():
             f.write("https://invalid.example.com/nonexistent\n")  # Should fail
             f.write("https://raw.githubusercontent.com/rust-lang/rust/master/COPYRIGHT\n")
 
-        # Test with skip-failures
-        result = run_hasher("download", "--skip-failures", url_file, tmpdir)
-        assert result.returncode == 0, "Download with skip-failures failed"
+        # Test with silent-failures
+        result = run_hasher("download", "--silent-failures", url_file, tmpdir)
+        assert result.returncode == 0, "Download with silent-failures failed"
 
         # Verify some files were downloaded despite failures
         gh_dir = os.path.join(tmpdir, "raw.githubusercontent.com")
         successful_files = 0
         for root, _, files in os.walk(gh_dir):
             successful_files += len(files)
-        assert successful_files > 0, "No files downloaded with skip-failures"
+        assert successful_files > 0, "No files downloaded with silent-failures"
 
         # Test retry count
         start_time = time.time()
         result = run_hasher(
             "download",
-            "--skip-failures",
+            "--silent-failures",
             "--retry-count", "2",
             "--retry-delay", "1",
             "https://invalid.example.com/nonexistent",
@@ -260,14 +260,15 @@ def test_download_failures():
         end_time = time.time()
         assert 1 < end_time - start_time < 4, "Retry timing incorrect"
 
-        # Test without skip-failures
+        # Test with fail-early
         result = run_hasher(
             "download",
+            "--fail-early",
             url_file,
             tmpdir,
             check_output=False
         )
-        assert result.returncode != 0, "Download should fail without skip-failures"
+        assert result.returncode != 0, "Download should fail with fail-early"
 
 
 def test_download_list():

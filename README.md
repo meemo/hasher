@@ -50,8 +50,14 @@ With all commands supporting the following basic options (though some may do not
 
 - `-v`/`--verbose`, `-q`/`--quiet`
   - Control logging verbosity. Use `-vvv` for maximum output
-- `-e`/`--continue-on-error`
-  - Don't stop after encountering an error
+- `-e`/`--fail-fast`
+  - Stop after encountering an error (by default errors are not fatal)
+- `-Q`/`--silent-failures`
+  - Silence error messages and skip notifications (errors will still not be fatal unless --fail-fast is used)
+- `-r`/`--retry-count`
+  - Number of retries for operations (default: 3)
+- `-d`/`--retry-delay`
+  - Delay in seconds between retries (default: 5)
 - `-s`/`--sql-only`
   - Only output to SQLite database
 - `-j`/`--json-only`
@@ -62,32 +68,28 @@ With all commands supporting the following basic options (though some may do not
   - Path to config file (default: ./config.toml)
 - `-w`/`--use-wal`
   - Use sqlite Write Ahead Logging
-- `--dry-run`
-  - Run without actually saving anything
-- `--retry-count`
-  - Number of retries for operations (default: 3)
-- `--retry-delay`
-  - Delay in seconds between retries (default: 5)
-- `--skip-failures`
-  - Skip failures instead of erroring out
-- `--max-depth`
+- `-n`/`--stdin`
+  - Hash data from stdin instead of files
+- `-m`/`--max-depth`
   - Maximum number of directories to traverse (default: 30)
-- `--no-follow-symlinks`
+- `-L`/`--no-follow-symlinks`
   - Do not follow symlinks (useful in case there are loops)
 - `-b`/`--breadth-first`
   - Hash all files in the top level directory first before lower level directories
-- `--db-path`
+- `-t`/`--dry-run`
+  - Run without actually saving anything
+- `-D`/`--db-path`
   - Override the database path from config
 - `-z`/`--compress`
   - Compress files when writing to disk (for copy/download)
+- `-C`/`--hash-compressed`
+  - Hash the compressed file instead of uncompressed
+- `-x`/`--decompress`
+  - Decompress gzip compressed files before hashing
+- `-B`/`--hash-both`
+  - Hash both compressed and decompressed content for compressed files
 - `--compression-level`
   - Compression level (1-9, default: 6)
-- `--hash-compressed`
-  - Hash the compressed file instead of uncompressed
-- `--decompress`
-  - Decompress gzip compressed files before hashing
-- `--hash-both`
-  - Hash both compressed and decompressed content for compressed files
 
 ### `hash`: Hash Files/Directories
 
@@ -110,7 +112,7 @@ hasher verify [OPTIONS]
 Verify files against stored hashes in the database.
 
 Special options:
-- `-m`/`--mismatches-only`
+- `-M`/`--mismatches-only`
   - Only output when files fail to verify
 
 ### `copy`: Copy Files
@@ -122,14 +124,12 @@ hasher copy [OPTIONS] <SOURCE> <DESTINATION>
 Copy files while hashing them.
 
 Special options:
-- `--store-source-path`
+- `-S`/`--store-source-path`
   - Store source path instead of destination path in database
-- `--skip-existing`
+- `-k`/`--skip-existing`
   - Skip copying files that already exist in the destination
-- `--no-hash-existing`
+- `-H`/`--no-hash-existing`
   - Skip hash comparison when checking existing files (only check if it exists/size)
-- `--silent-skip`
-  - Don't output JSON when skipping existing files (use original log messages)
 
 ### `download`: Download Files
 
@@ -140,7 +140,7 @@ hasher download [OPTIONS] <SOURCE> <DESTINATION>
 Download and hash files. SOURCE can be either a URL or a file containing URLs (one per line).
 
 Special options:
-- `--no-clobber`
+- `-N`/`--no-clobber`
   - Do not replace already downloaded files
 
 ### Config File

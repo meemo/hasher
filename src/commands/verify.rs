@@ -337,11 +337,13 @@ pub async fn execute(args: HasherVerifyArgs, config: &Config) -> Result<(), Erro
             Err(e) => {
                 let err_msg = format!("Failed to verify {}: {}", path.display(), e);
                 error_count += 1;
-                if args.hash_options.continue_on_error {
-                    error!("{}", err_msg);
-                    continue;
+                if args.hash_options.fail_fast {
+                    return Err(e);
                 }
-                return Err(e);
+                if !args.hash_options.silent_failures {
+                    error!("{}", err_msg);
+                }
+                continue;
             }
         }
     }

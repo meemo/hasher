@@ -186,7 +186,7 @@ fn file_existing(
 
     // If hash comparison is disabled, we can skip at this point
     if args.no_hash_existing {
-        if !args.silent_skip {
+        if !args.hash_options.silent_failures {
             output_skip_json(dest, "size match", args.hash_options.pretty_json);
         } else {
             info!("Skipping existing file (size match): {}", dest.display());
@@ -218,7 +218,7 @@ fn file_existing(
 
     if let (Some(source_hash), Some(dest_hash)) = (source_sha256, dest_sha256) {
         if source_hash == dest_hash {
-            if !args.silent_skip {
+            if !args.hash_options.silent_failures {
                 output_skip_json(dest, "hash match", args.hash_options.pretty_json);
             } else {
                 info!("Skipping existing file (hash match): {}", dest.display());
@@ -244,7 +244,7 @@ async fn _hash_file(
             Ok(())
         }
         Err(e) => {
-            if args.hash_options.continue_on_error {
+            if !args.hash_options.fail_fast {
                 error!("Failed to hash {}: {}", path.display(), e);
                 Ok(())
             } else {
@@ -271,7 +271,7 @@ async fn _hash_compressed_file(
                 process_hash_results(source, data.len(), &hashes, args, config, db_conn).await?;
             }
             Err(e) => {
-                if args.hash_options.continue_on_error {
+                if !args.hash_options.fail_fast {
                     error!(
                         "Failed to hash decompressed data for {}: {}",
                         source.display(),
@@ -425,7 +425,7 @@ async fn copy_directory(
 
             if let Err(e) = copy_and_hash_file(path, &dest_path, args, config, db_conn).await {
                 let err_msg = format!("Failed to copy {}: {}", path.display(), e);
-                if args.hash_options.continue_on_error {
+                if !args.hash_options.fail_fast {
                     error!("{}", err_msg);
                     continue;
                 }
