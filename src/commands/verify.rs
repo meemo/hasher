@@ -144,6 +144,74 @@ fn build_verification_json(
     )
 }
 
+async fn _hash_compressed_file(
+    file_path: &Path,
+    args: &HasherVerifyArgs,
+) -> Result<(Option<usize>, (Vec<u8>, Vec<u8>)), Error> {
+    let mut hasher = Hasher::new(HashConfig {
+        crc32: true,
+        sha256: true,
+        ..Default::default()
+    });
+
+    let compressor = compression::get_compressor(
+        compression::CompressionType::Gzip,
+        args.hash_options.compression_level,
+    );
+    let compressed_data = if compressor.is_compressed_path(file_path) {
+        tokio::fs::read(file_path).await?
+    } else if args.hash_options.hash_compressed {
+        let data = tokio::fs::read(file_path).await?;
+        compression::compress_bytes(
+            &data,
+            compression::CompressionType::Gzip,
+            args.hash_options.compression_level,
+        )
+        .map_err(Error::IO)?
+    } else {
+        return _hash_file(file_path).await;
+    };
+
+    if args.hash_options.hash_both {
+        // Hash both compressed and decompressed states
+        let comp_hashes = hasher.hash_single_buffer(&compressed_data)?;
+        let comp_result = extract_current_hashes(&comp_hashes);
+
+        let decompressed =
+            compression::decompress_bytes(&compressed_data, compression::CompressionType::Gzip)?;
+        let decomp_hashes = hasher.hash_single_buffer(&decompressed)?;
+        let decomp_result = extract_current_hashes(&decomp_hashes);
+
+        // Return the compressed result if hash_compressed is true, otherwise return decompressed
+        if args.hash_options.hash_compressed {
+            Ok((Some(compressed_data.len()), comp_result))
+        } else {
+            Ok((Some(decompressed.len()), decomp_result))
+        }
+    } else if args.hash_options.decompress {
+        // Only hash decompressed state
+        let decompressed =
+            compression::decompress_bytes(&compressed_data, compression::CompressionType::Gzip)?;
+        let hashes = hasher.hash_single_buffer(&decompressed)?;
+        Ok((Some(decompressed.len()), extract_current_hashes(&hashes)))
+    } else {
+        // Only hash compressed state
+        let hashes = hasher.hash_single_buffer(&compressed_data)?;
+        Ok((Some(compressed_data.len()), extract_current_hashes(&hashes)))
+    }
+}
+
+async fn _hash_file(path: &Path) -> Result<(Option<usize>, (Vec<u8>, Vec<u8>)), Error> {
+    let mut hasher = Hasher::new(HashConfig {
+        crc32: true,
+        sha256: true,
+        ..Default::default()
+    });
+    info!("Verifying {}", path.display());
+    let (size, hashes) = hasher.hash_file(path)?;
+    Ok((Some(size), extract_current_hashes(&hashes)))
+}
+
 async fn verify_file(
     path: &Path,
     args: &HasherVerifyArgs,
@@ -159,57 +227,28 @@ async fn verify_file(
     }
 
     let (current_size, current_hashes) = if !path.exists() {
+        // Check for gzipped version of the file
         let gz_path = path.with_extension(format!(
             "{}.gz",
             path.extension().unwrap_or_default().to_string_lossy()
         ));
 
         if gz_path.exists() {
-            let compressed_data = tokio::fs::read(&gz_path).await?;
-            let data = compression::decompress_bytes(
-                &compressed_data,
-                compression::CompressionType::Gzip,
-            )?;
-
-            let mut hasher = Hasher::new(HashConfig {
-                crc32: true,
-                sha256: true,
-                ..Default::default()
-            });
-
-            let hashes = hasher.hash_single_buffer(&data)?;
-            (Some(data.len()), extract_current_hashes(&hashes))
+            _hash_compressed_file(&gz_path, args).await?
         } else {
             info!("File not found: {}", path.display());
             (None, (Vec::new(), Vec::new()))
         }
     } else {
-        let compressor = compression::get_compressor(compression::CompressionType::Gzip, 6);
+        let compressor = compression::get_compressor(
+            compression::CompressionType::Gzip,
+            args.hash_options.compression_level,
+        );
 
-        if compressor.is_compressed_path(path) {
-            let compressed_data = tokio::fs::read(path).await?;
-            let data = compression::decompress_bytes(
-                &compressed_data,
-                compression::CompressionType::Gzip,
-            )?;
-
-            let mut hasher = Hasher::new(HashConfig {
-                crc32: true,
-                sha256: true,
-                ..Default::default()
-            });
-
-            let hashes = hasher.hash_single_buffer(&data)?;
-            (Some(data.len()), extract_current_hashes(&hashes))
+        if compressor.is_compressed_path(path) || args.hash_options.hash_compressed {
+            _hash_compressed_file(path, args).await?
         } else {
-            let mut hasher = Hasher::new(HashConfig {
-                crc32: true,
-                sha256: true,
-                ..Default::default()
-            });
-            info!("Verifying {}", path.display());
-            let (size, hashes) = hasher.hash_file(path)?;
-            (Some(size), extract_current_hashes(&hashes))
+            _hash_file(path).await?
         }
     };
 

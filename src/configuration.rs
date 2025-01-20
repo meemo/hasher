@@ -152,6 +152,10 @@ pub struct HasherCopyArgs {
     #[arg(long)]
     pub no_hash_existing: bool,
 
+    /// Don't output JSON when skipping existing files
+    #[arg(long)]
+    pub silent_skip: bool,
+
     #[clap(flatten)]
     pub hash_options: HasherOptions,
 }

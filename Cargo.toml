@@ -1,7 +1,7 @@
 [package]
 name = "hasher"
 description = "Multithreaded simultaneous hashing utility"
-version = "0.8.10"
+version = "0.8.11"
 edition = "2021"
 readme = "README.md"
 
@@ -34,33 +34,33 @@ groestl = "0.10.1"
 shabal = "0.4.1"
 digest = "0.10.7"
 hex = "0.4.3"
-log = "0.4.22"
-env_logger = "0.11.5"
+log = "0.4.25"
+env_logger = "0.11.6"
 walkdir = "2.5.0"
-serde = "1.0.215"
-serde_derive = "1.0.215"
-serde_json = "1.0.132"
-chrono = "0.4.38"
+serde = "1.0.217"
+serde_derive = "1.0.217"
+serde_json = "1.0.137"
+chrono = "0.4.39"
 toml = "0.8.19"
-clap-verbosity-flag = "2.2.2"
+clap-verbosity-flag = "3.0.2"
 futures = "0.3.31"
 flate2 = "1.0.35"
 
 [dependencies.clap]
-version = "4.5.20"
+version = "4.5.26"
 features = ["derive"]
 
 [dependencies.tokio]
-version = "1.41.1"
+version = "1.43.0"
 features = ["rt-multi-thread", "macros", "time", "fs", "io-util"]
 
 [dependencies.sqlx]
-version = "0.8.2"
+version = "0.8.3"
 features = ["sqlite", "runtime-async-std-rustls"]
 
 [dependencies.reqwest]
-version = "0.12.9"
+version = "0.12.12"
 features = ["stream", "rustls-tls"]
 
 [dev-dependencies]
-tempfile = "3.14.0"
+tempfile = "3.15.0"

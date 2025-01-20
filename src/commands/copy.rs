@@ -1,10 +1,10 @@
-use serde_json::json;
-use sqlx::Connection;
-use std::fs::{self, File};
-use std::io::{self, BufReader, BufWriter, Read};
-use std::path::Path;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Read};
+use std::path::{Path, PathBuf};
 
 use log::{debug, error, info};
+use serde_json::json;
+use sqlx::Connection;
 use walkdir::WalkDir;
 
 use crate::compression::{self, CompressionAlgorithm};
@@ -29,6 +29,22 @@ fn output_json(file_path: &Path, file_size: usize, hashes: &[(&str, Vec<u8>)], p
         serde_json::to_string_pretty(&hash_map)
     } else {
         serde_json::to_string(&hash_map)
+    }
+    .unwrap();
+
+    println!("{}", output);
+}
+
+fn output_skip_json(path: &Path, reason: &str, pretty: bool) {
+    let mut skip_map = serde_json::Map::new();
+    skip_map.insert("status".to_string(), json!("skipped"));
+    skip_map.insert("file_path".to_string(), json!(path.display().to_string()));
+    skip_map.insert("reason".to_string(), json!(reason));
+
+    let output = if pretty {
+        serde_json::to_string_pretty(&skip_map)
+    } else {
+        serde_json::to_string(&skip_map)
     }
     .unwrap();
 
@@ -61,16 +77,17 @@ async fn process_hash_results(
 
 fn get_file_data(path: &Path) -> Result<(bool, Vec<u8>), Error> {
     // Get initial metadata for size check and later comparison
-    let initial_metadata = fs::metadata(path)?;
+    let initial_metadata = std::fs::metadata(path)?;
 
     let mut file = BufReader::new(File::open(path)?);
     let mut data = Vec::new();
     file.read_to_end(&mut data)?;
 
     // Check if file changed during read
-    let final_metadata = fs::metadata(path)?;
-    if initial_metadata.modified()? != final_metadata.modified()? ||
-       initial_metadata.len() != final_metadata.len() {
+    let final_metadata = std::fs::metadata(path)?;
+    if initial_metadata.modified()? != final_metadata.modified()?
+        || initial_metadata.len() != final_metadata.len()
+    {
         return Err(Error::FileChanged);
     }
 
@@ -81,7 +98,7 @@ fn get_file_data(path: &Path) -> Result<(bool, Vec<u8>), Error> {
         // Verify it's actually a gzip file by trying to decompress
         match compression::decompress_bytes(&data, compression::CompressionType::Gzip) {
             Ok(decompressed) => Ok((true, decompressed)),
-            Err(_) => Err(Error::Config("Invalid gzip file".into()))
+            Err(_) => Err(Error::Config("Invalid gzip file".into())),
         }
     } else {
         Ok((false, data))
@@ -99,8 +116,8 @@ fn file_existing(
     }
 
     // Get initial metadata to detect changes during comparison
-    let initial_source_meta = fs::metadata(source)?;
-    let initial_dest_meta = fs::metadata(dest)?;
+    let initial_source_meta = std::fs::metadata(source)?;
+    let initial_dest_meta = std::fs::metadata(dest)?;
 
     // Handle symlinks consistently
     if initial_source_meta.file_type().is_symlink() != initial_dest_meta.file_type().is_symlink() {
@@ -108,38 +125,72 @@ fn file_existing(
         return Ok(false);
     }
 
-    let (source_compressed, source_data) = get_file_data(source)?;
-    let (dest_compressed, dest_data) = get_file_data(dest)?;
+    let compressor = compression::get_compressor(
+        compression::CompressionType::Gzip,
+        args.hash_options.compression_level,
+    );
+    let source_compressed = compressor.is_compressed_path(source);
+    let dest_compressed = compressor.is_compressed_path(dest);
+
+    let source_data = if source_compressed && args.hash_options.decompress {
+        let compressed = std::fs::read(source)?;
+        compression::decompress_bytes(&compressed, compression::CompressionType::Gzip)?
+    } else if !source_compressed && args.hash_options.hash_compressed {
+        let data = std::fs::read(source)?;
+        compression::compress_bytes(
+            &data,
+            compression::CompressionType::Gzip,
+            args.hash_options.compression_level,
+        )
+        .map_err(Error::IO)?
+    } else {
+        std::fs::read(source)?
+    };
+
+    let dest_data = if dest_compressed && args.hash_options.decompress {
+        let compressed = std::fs::read(dest)?;
+        compression::decompress_bytes(&compressed, compression::CompressionType::Gzip)?
+    } else if !dest_compressed && args.hash_options.hash_compressed {
+        let data = std::fs::read(dest)?;
+        compression::compress_bytes(
+            &data,
+            compression::CompressionType::Gzip,
+            args.hash_options.compression_level,
+        )
+        .map_err(Error::IO)?
+    } else {
+        std::fs::read(dest)?
+    };
 
     // Verify files haven't changed during comparison
-    let final_source_meta = fs::metadata(source)?;
-    let final_dest_meta = fs::metadata(dest)?;
+    let final_source_meta = std::fs::metadata(source)?;
+    let final_dest_meta = std::fs::metadata(dest)?;
 
-    if initial_source_meta.modified()? != final_source_meta.modified()? ||
-       initial_source_meta.len() != final_source_meta.len() ||
-       initial_dest_meta.modified()? != final_dest_meta.modified()? ||
-       initial_dest_meta.len() != final_dest_meta.len() {
+    if initial_source_meta.modified()? != final_source_meta.modified()?
+        || initial_source_meta.len() != final_source_meta.len()
+        || initial_dest_meta.modified()? != final_dest_meta.modified()?
+        || initial_dest_meta.len() != final_dest_meta.len()
+    {
         return Err(Error::FileChanged);
-    }
-
-    // If compression states don't match and we're not about to compress/decompress,
-    // then we should copy
-    if source_compressed != dest_compressed &&
-       !((args.hash_options.compress && !dest_compressed) ||
-         (args.hash_options.decompress && dest_compressed)) {
-        debug!("Compression state mismatch between source and destination");
-        return Ok(false);
     }
 
     // If sizes don't match, we should copy
     if source_data.len() != dest_data.len() {
-        debug!("Size mismatch: source={}, dest={}", source_data.len(), dest_data.len());
+        debug!(
+            "Size mismatch: source={}, dest={}",
+            source_data.len(),
+            dest_data.len()
+        );
         return Ok(false);
     }
 
     // If hash comparison is disabled, we can skip at this point
     if args.no_hash_existing {
-        info!("Skipping existing file (size match): {}", dest.display());
+        if !args.silent_skip {
+            output_skip_json(dest, "size match", args.hash_options.pretty_json);
+        } else {
+            info!("Skipping existing file (size match): {}", dest.display());
+        }
         return Ok(true);
     }
 
@@ -156,12 +207,22 @@ fn file_existing(
     let source_hashes = source_hasher.hash_single_buffer(&source_data)?;
     let dest_hashes = dest_hasher.hash_single_buffer(&dest_data)?;
 
-    let source_sha256 = source_hashes.iter().find(|(name, _)| *name == "sha256").map(|(_, hash)| hash);
-    let dest_sha256 = dest_hashes.iter().find(|(name, _)| *name == "sha256").map(|(_, hash)| hash);
+    let source_sha256 = source_hashes
+        .iter()
+        .find(|(name, _)| *name == "sha256")
+        .map(|(_, hash)| hash);
+    let dest_sha256 = dest_hashes
+        .iter()
+        .find(|(name, _)| *name == "sha256")
+        .map(|(_, hash)| hash);
 
     if let (Some(source_hash), Some(dest_hash)) = (source_sha256, dest_sha256) {
         if source_hash == dest_hash {
-            info!("Skipping existing file (hash match): {}", dest.display());
+            if !args.silent_skip {
+                output_skip_json(dest, "hash match", args.hash_options.pretty_json);
+            } else {
+                info!("Skipping existing file (hash match): {}", dest.display());
+            }
             return Ok(true);
         }
         debug!("Hash mismatch between source and destination");
@@ -170,23 +231,63 @@ fn file_existing(
     Ok(false)
 }
 
-async fn copy_and_hash_file(
-    source: &Path,
-    dest: &Path,
+async fn _hash_file(
+    path: &Path,
+    hasher: &mut Hasher,
     args: &HasherCopyArgs,
     config: &Config,
     db_conn: &mut Option<sqlx::SqliteConnection>,
 ) -> Result<(), Error> {
-    // Early return if dry run is enabled
-    if args.hash_options.dry_run {
-        return Ok(());
+    match hasher.hash_file(path) {
+        Ok((file_size, hashes)) => {
+            process_hash_results(path, file_size, &hashes, args, config, db_conn).await?;
+            Ok(())
+        }
+        Err(e) => {
+            if args.hash_options.continue_on_error {
+                error!("Failed to hash {}: {}", path.display(), e);
+                Ok(())
+            } else {
+                Err(Error::from(e))
+            }
+        }
     }
+}
 
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent)?;
+async fn _hash_compressed_file(
+    source: &Path,
+    hasher: &mut Hasher,
+    args: &HasherCopyArgs,
+    config: &Config,
+    db_conn: &mut Option<sqlx::SqliteConnection>,
+) -> Result<(), Error> {
+    // Hash compressed state
+    _hash_file(source, hasher, args, config, db_conn).await?;
+
+    // Hash decompressed state
+    if let Ok((_, data)) = get_file_data(source) {
+        match hasher.hash_single_buffer(&data) {
+            Ok(hashes) => {
+                process_hash_results(source, data.len(), &hashes, args, config, db_conn).await?;
+            }
+            Err(e) => {
+                if args.hash_options.continue_on_error {
+                    error!(
+                        "Failed to hash decompressed data for {}: {}",
+                        source.display(),
+                        e
+                    );
+                } else {
+                    return Err(Error::from(e));
+                }
+            }
+        }
     }
+    Ok(())
+}
 
-    let final_dest = if args.hash_options.compress {
+fn get_final_dest(dest: &Path, args: &HasherCopyArgs) -> PathBuf {
+    if args.hash_options.compress {
         let compressor = compression::get_compressor(
             compression::CompressionType::Gzip,
             args.hash_options.compression_level,
@@ -198,49 +299,101 @@ async fn copy_and_hash_file(
         ))
     } else {
         dest.to_path_buf()
-    };
-
-    if file_existing(source, &final_dest, args, config)? {
-        return Ok(());
     }
+}
 
-    if args.hash_options.compress {
-        let source_data = fs::read(source)?;
+fn copy_file(source: &Path, dest: &Path, args: &HasherCopyArgs) -> Result<(), Error> {
+    let compressor = compression::get_compressor(
+        compression::CompressionType::Gzip,
+        args.hash_options.compression_level,
+    );
+    let source_compressed = compressor.is_compressed_path(source);
+
+    if args.hash_options.compress && !source_compressed {
+        // Compress uncompressed source
+        let source_data = std::fs::read(source)?;
         let compressed = compression::compress_bytes(
             &source_data,
             compression::CompressionType::Gzip,
             args.hash_options.compression_level,
         )
         .map_err(Error::IO)?;
-        fs::write(&final_dest, compressed)?;
+        std::fs::write(dest, compressed)?;
+    } else if args.hash_options.decompress && source_compressed {
+        // Decompress compressed source
+        let compressed = std::fs::read(source)?;
+        let decompressed =
+            compression::decompress_bytes(&compressed, compression::CompressionType::Gzip)?;
+        std::fs::write(dest, decompressed)?;
     } else {
+        // Direct copy
         let reader = BufReader::new(File::open(source)?);
-        let writer = BufWriter::new(File::create(&final_dest)?);
-        io::copy(&mut BufReader::new(reader), &mut BufWriter::new(writer))?;
+        let writer = BufWriter::new(File::create(dest)?);
+        std::io::copy(&mut BufReader::new(reader), &mut BufWriter::new(writer))?;
     }
+    Ok(())
+}
 
-    let path_to_hash = if args.store_source_path {
-        source
-    } else if args.hash_options.hash_compressed {
-        &final_dest
-    } else {
-        source
-    };
-
+async fn hash_file_based_on_options(
+    source: &Path,
+    final_dest: &Path,
+    args: &HasherCopyArgs,
+    config: &Config,
+    db_conn: &mut Option<sqlx::SqliteConnection>,
+) -> Result<(), Error> {
     let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
-    match hasher.hash_file(path_to_hash) {
-        Ok((file_size, hashes)) => {
-            process_hash_results(path_to_hash, file_size, &hashes, args, config, db_conn)
-                .await?;
-        }
-        Err(e) => {
-            if args.hash_options.continue_on_error {
-                error!("Failed to hash {}: {}", path_to_hash.display(), e);
+
+    if args.hash_options.hash_both {
+        let compressor = compression::get_compressor(compression::CompressionType::Gzip, 6);
+        let is_compressed = compressor.is_compressed_path(source);
+
+        if is_compressed {
+            _hash_compressed_file(source, &mut hasher, args, config, db_conn).await?;
+        } else {
+            let path_to_hash = if args.store_source_path {
+                source
             } else {
-                return Err(Error::from(e));
-            }
+                final_dest
+            };
+            _hash_file(path_to_hash, &mut hasher, args, config, db_conn).await?;
         }
+    } else {
+        let path_to_hash = if args.store_source_path {
+            source
+        } else if args.hash_options.hash_compressed {
+            final_dest
+        } else {
+            source
+        };
+        _hash_file(path_to_hash, &mut hasher, args, config, db_conn).await?;
     }
+
+    Ok(())
+}
+
+async fn copy_and_hash_file(
+    source: &Path,
+    dest: &Path,
+    args: &HasherCopyArgs,
+    config: &Config,
+    db_conn: &mut Option<sqlx::SqliteConnection>,
+) -> Result<(), Error> {
+    if args.hash_options.dry_run {
+        return Ok(());
+    }
+
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let final_dest = get_final_dest(dest, args);
+
+    if file_existing(source, &final_dest, args, config)? {
+        return Ok(());
+    }
+
+    copy_file(source, &final_dest, args)?;
+    hash_file_based_on_options(source, &final_dest, args, config, db_conn).await?;
 
     Ok(())
 }

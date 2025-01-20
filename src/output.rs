@@ -7,8 +7,8 @@ use serde_json::json;
 use sqlx::{query_builder::QueryBuilder, Connection, SqliteConnection};
 use walkdir::WalkDir;
 
-use crate::configuration::{Config, HasherOptions};
 use crate::compression::{self, CompressionAlgorithm};
+use crate::configuration::{Config, HasherOptions};
 use crate::utils::Error;
 use hasher::{HashConfig, Hasher};
 
@@ -98,19 +98,37 @@ pub async fn process_single_file(
     let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
     let compressor = compression::get_compressor(compression::CompressionType::Gzip, 6);
 
-    let process_file = |data: &[u8], _path: &Path| -> Result<(usize, Vec<(&str, Vec<u8>)>), Error> {
-        let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
-        hasher.hash_single_buffer(data)
-            .map(|hashes| (data.len(), hashes))
-            .map_err(Error::from)
-    };
+    let process_file =
+        |data: &[u8], _path: &Path| -> Result<(usize, Vec<(&str, Vec<u8>)>), Error> {
+            let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
+            hasher
+                .hash_single_buffer(data)
+                .map(|hashes| (data.len(), hashes))
+                .map_err(Error::from)
+        };
 
-    let result = if args.decompress && compressor.is_compressed_path(file_path) {
-        let compressed_data = tokio::fs::read(file_path).await?;
-        let decompressed = compression::decompress_bytes(&compressed_data, compression::CompressionType::Gzip)?;
+    let result = if compressor.is_compressed_path(file_path) || args.hash_compressed {
+        let compressed_data = if compressor.is_compressed_path(file_path) {
+            tokio::fs::read(file_path).await?
+        } else {
+            let data = tokio::fs::read(file_path).await?;
+            compression::compress_bytes(
+                &data,
+                compression::CompressionType::Gzip,
+                args.compression_level,
+            )
+            .map_err(Error::IO)?
+        };
 
         if args.hash_both {
+            // Hash compressed state
             let (comp_size, comp_hashes) = process_file(&compressed_data, file_path)?;
+
+            // Hash decompressed state
+            let decompressed = compression::decompress_bytes(
+                &compressed_data,
+                compression::CompressionType::Gzip,
+            )?;
             let (decomp_size, decomp_hashes) = process_file(&decompressed, file_path)?;
 
             // Output both results
@@ -122,7 +140,8 @@ pub async fn process_single_file(
                     if let Some(conn) = db_conn {
                         insert_hash_to_db(config, file_path, comp_size, &comp_hashes, conn).await?;
                         let decomp_path = file_path.with_extension("");
-                        insert_hash_to_db(config, &decomp_path, decomp_size, &decomp_hashes, conn).await?;
+                        insert_hash_to_db(config, &decomp_path, decomp_size, &decomp_hashes, conn)
+                            .await?;
                     }
                 }
 
@@ -133,8 +152,33 @@ pub async fn process_single_file(
                 }
             }
             Ok(())
-        } else {
+        } else if args.decompress {
+            // Only hash decompressed state
+            let decompressed = compression::decompress_bytes(
+                &compressed_data,
+                compression::CompressionType::Gzip,
+            )?;
             let (size, hashes) = process_file(&decompressed, file_path)?;
+            log_hash_results(file_path, &hashes);
+
+            if !args.dry_run {
+                let do_sql = !args.json_only;
+                let do_json = !args.sql_only;
+
+                if do_sql {
+                    if let Some(conn) = db_conn {
+                        insert_hash_to_db(config, file_path, size, &hashes, conn).await?;
+                    }
+                }
+
+                if do_json {
+                    output_json(file_path, size, &hashes, args.pretty_json);
+                }
+            }
+            Ok(())
+        } else {
+            // Only hash compressed state
+            let (size, hashes) = process_file(&compressed_data, file_path)?;
             log_hash_results(file_path, &hashes);
 
             if !args.dry_run {
@@ -174,7 +218,7 @@ pub async fn process_single_file(
                 }
                 Ok(())
             }
-            Err(e) => Err(Error::from(e))
+            Err(e) => Err(Error::from(e)),
         }
     };
 
@@ -194,7 +238,8 @@ pub async fn process_single_file(
 pub async fn process_stdin(
     config: &Config,
     file_path: &str,
-    conn: &mut SqliteConnection,
+    conn: &mut Option<SqliteConnection>,
+    args: &HasherOptions,
 ) -> Result<(), Error> {
     let mut buffer = Vec::new();
     std::io::stdin().read_to_end(&mut buffer)?;
@@ -202,7 +247,23 @@ pub async fn process_stdin(
     let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
     let hashes = hasher.hash_single_buffer(&buffer)?;
 
-    insert_hash_to_db(config, Path::new(file_path), buffer.len(), &hashes, conn).await?;
+    let do_sql = !args.json_only;
+    let do_json = !args.sql_only;
+
+    if do_sql {
+        if let Some(conn) = conn {
+            insert_hash_to_db(config, Path::new(file_path), buffer.len(), &hashes, conn).await?;
+        }
+    }
+
+    if do_json {
+        output_json(
+            Path::new(file_path),
+            buffer.len(),
+            &hashes,
+            args.pretty_json,
+        );
+    }
 
     Ok(())
 }

@@ -2,7 +2,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use futures::{StreamExt, stream::BoxStream};
+use futures::{stream::BoxStream, StreamExt};
 use log::{debug, info, trace, warn};
 use reqwest::Client;
 
@@ -102,7 +102,11 @@ impl Downloader {
 
         debug!("Download complete, processing buffer");
         let processed_buffer = self.process_download_buffer(buffer).await?;
-        debug!("Writing {} bytes to {}", processed_buffer.len(), dest_path.display());
+        debug!(
+            "Writing {} bytes to {}",
+            processed_buffer.len(),
+            dest_path.display()
+        );
         tokio::fs::write(dest_path, processed_buffer).await?;
 
         Ok((downloaded, dest_path.to_path_buf()))
@@ -190,7 +194,8 @@ impl Downloader {
                     success: false,
                     error: Some(format!("Failed to create directory: {}", e)),
                 }
-            }).boxed();
+            })
+            .boxed();
         }
 
         futures::stream::iter(urls)
