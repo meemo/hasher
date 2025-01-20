@@ -1,5 +1,14 @@
 # Changelog/Version History
 
+## 0.8.11: Bug fixes, copy improvements, general changes
+
+- `--hash-both` is now properly implemented across all commands
+- Console output added for skipped files by default
+- `--silent-skip` added to silence that console output
+- General code cleanup
+- rustfmt run
+- Bump dependencies
+
 ## 0.8.10: Bug fix: Consistent database initialization
 
 - Only `hash` would initialize databases that don't exist, now all commands do

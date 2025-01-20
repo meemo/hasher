@@ -128,6 +128,8 @@ Special options:
   - Skip copying files that already exist in the destination
 - `--no-hash-existing`
   - Skip hash comparison when checking existing files (only check if it exists/size)
+- `--silent-skip`
+  - Don't output JSON when skipping existing files (use original log messages)
 
 ### `download`: Download Files
 

@@ -5,8 +5,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 
-use log::info;
 use digest::{Digest, DynDigest};
+use log::info;
 
 const CHUNK_SIZE: usize = 512 * 1024 * 1024; // 512 MiB
 const SEQUENTIAL_SIZE: usize = 32 * 1024 * 1024; // 32 MiB
@@ -131,17 +131,31 @@ pub struct Hasher {
 
 impl Hasher {
     fn finalize_hashes(&mut self) -> Result<HashResult, Error> {
-        let mut results = Vec::with_capacity(self.hashes.len() + self.crc32_hasher.is_some() as usize);
+        let mut results =
+            Vec::with_capacity(self.hashes.len() + self.crc32_hasher.is_some() as usize);
 
         if let Some(crc32) = &self.crc32_hasher {
             results.push((
                 "crc32",
-                crc32.lock().map_err(|_| Error::ThreadPanic)?.clone().finalize().to_le_bytes().to_vec(),
+                crc32
+                    .lock()
+                    .map_err(|_| Error::ThreadPanic)?
+                    .clone()
+                    .finalize()
+                    .to_le_bytes()
+                    .to_vec(),
             ));
         }
 
         for (name, hasher) in &mut self.hashes {
-            results.push((*name, hasher.lock().map_err(|_| Error::ThreadPanic)?.finalize_reset().to_vec()));
+            results.push((
+                *name,
+                hasher
+                    .lock()
+                    .map_err(|_| Error::ThreadPanic)?
+                    .finalize_reset()
+                    .to_vec(),
+            ));
         }
 
         Ok(results)
@@ -168,7 +182,10 @@ impl Hasher {
         let guard = buffer.read().map_err(|_| Error::ThreadPanic)?;
 
         for (_name, hasher) in &self.hashes {
-            hasher.lock().map_err(|_| Error::ThreadPanic)?.update(&guard);
+            hasher
+                .lock()
+                .map_err(|_| Error::ThreadPanic)?
+                .update(&guard);
         }
 
         if let Some(crc32) = &self.crc32_hasher {
@@ -187,7 +204,9 @@ impl Hasher {
             let hasher = Arc::clone(hasher);
 
             threads.push(thread::spawn(move || {
-                hasher.lock().map_err(|_| Error::ThreadPanic)?
+                hasher
+                    .lock()
+                    .map_err(|_| Error::ThreadPanic)?
                     .update(&buffer.read().map_err(|_| Error::ThreadPanic)?);
                 Ok(())
             }));
@@ -198,7 +217,9 @@ impl Hasher {
             let hasher = Arc::clone(crc32);
 
             threads.push(thread::spawn(move || {
-                hasher.lock().map_err(|_| Error::ThreadPanic)?
+                hasher
+                    .lock()
+                    .map_err(|_| Error::ThreadPanic)?
                     .update(&buffer.read().map_err(|_| Error::ThreadPanic)?);
                 Ok(())
             }));

@@ -42,7 +42,9 @@ fn construct_download_path(url: &str, base_dir: &Path) -> Result<PathBuf, Error>
 }
 
 async fn read_url_list(path: &Path) -> Result<Vec<String>, Error> {
-    let file = File::open(path).await.map_err(|e| Error::Download(format!("Failed to open URL list file: {}", e)))?;
+    let file = File::open(path)
+        .await
+        .map_err(|e| Error::Download(format!("Failed to open URL list file: {}", e)))?;
     let reader = BufReader::new(file);
     let mut lines = reader.lines();
     let mut urls = Vec::new();
@@ -91,7 +93,8 @@ fn build_result_json(result: &DownloadResult, pretty: bool) -> String {
         serde_json::to_string_pretty(&json)
     } else {
         serde_json::to_string(&json)
-    }.unwrap()
+    }
+    .unwrap()
 }
 
 async fn process_download_result(
@@ -103,7 +106,10 @@ async fn process_download_result(
 
     // Output JSON unless SQL-only is explicitly set
     if !args.hash_options.sql_only || args.hash_options.json_only {
-        println!("{}", build_result_json(&result, args.hash_options.pretty_json));
+        println!(
+            "{}",
+            build_result_json(&result, args.hash_options.pretty_json)
+        );
     }
 
     match (&result.success, &result.error) {
@@ -111,15 +117,25 @@ async fn process_download_result(
         (true, Some(e)) if e == "File exists, skipping download" => Ok(false),
 
         // Process successful downloads
-        (true, _) => match crate::output::process_single_file(&result.path, config, &args.hash_options, &mut None).await {
+        (true, _) => match crate::output::process_single_file(
+            &result.path,
+            config,
+            &args.hash_options,
+            &mut None,
+        )
+        .await
+        {
             Ok(()) => Ok(false),
             Err(e) if args.hash_options.skip_failures => {
-                println!("{}", serde_json::json!({
-                    "url": result.url,
-                    "destination": result.path,
-                    "error": e.to_string(),
-                    "type": "hash_failure"
-                }));
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "url": result.url,
+                        "destination": result.path,
+                        "error": e.to_string(),
+                        "type": "hash_failure"
+                    })
+                );
                 Ok(true)
             }
             Err(e) => Err(e),
@@ -127,8 +143,14 @@ async fn process_download_result(
 
         // Handle failures
         (false, _) if args.hash_options.skip_failures => Ok(true),
-        (false, Some(e)) => Err(Error::Download(format!("Failed to download {}: {}", result.url, e))),
-        (false, None) => Err(Error::Download(format!("Failed to download {}: Unknown error", result.url))),
+        (false, Some(e)) => Err(Error::Download(format!(
+            "Failed to download {}: {}",
+            result.url, e
+        ))),
+        (false, None) => Err(Error::Download(format!(
+            "Failed to download {}: Unknown error",
+            result.url
+        ))),
     }
 }
 
@@ -140,7 +162,10 @@ pub async fn execute(args: HasherDownloadArgs, config: &Config) -> Result<(), Er
         info!("Reading URLs from file: {}", args.source.display());
         read_url_list(Path::new(&args.source)).await?
     } else {
-        info!("Using single URL from command line: {}", args.source.display());
+        info!(
+            "Using single URL from command line: {}",
+            args.source.display()
+        );
         vec![args.source.to_string_lossy().to_string()]
     };
 
@@ -162,10 +187,7 @@ pub async fn execute(args: HasherDownloadArgs, config: &Config) -> Result<(), Er
                 return base_path;
             }
 
-            let compressor = compression::get_compressor(
-                CompressionType::Gzip,
-                compression_level,
-            );
+            let compressor = compression::get_compressor(CompressionType::Gzip, compression_level);
             base_path.with_extension(format!(
                 "{}{}",
                 base_path.extension().unwrap_or_default().to_string_lossy(),
