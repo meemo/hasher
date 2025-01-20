@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use futures::StreamExt;
-use log::{debug, info, trace};
+use log::{debug, error, info, trace};
 use reqwest::Url;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -126,7 +126,7 @@ async fn process_download_result(
         .await
         {
             Ok(()) => Ok(false),
-            Err(e) if args.hash_options.skip_failures => {
+            Err(e) if !args.hash_options.fail_fast => {
                 println!(
                     "{}",
                     serde_json::json!({
@@ -142,7 +142,16 @@ async fn process_download_result(
         },
 
         // Handle failures
-        (false, _) if args.hash_options.skip_failures => Ok(true),
+        (false, _) if !args.hash_options.fail_fast && args.hash_options.silent_failures => {
+            error!("Failed to download {}: Unknown error", result.url);
+            Ok(true)
+        }
+        (false, _) if !args.hash_options.fail_fast => {
+            Err(Error::Download(format!(
+                "Failed to download {}: Unknown error",
+                result.url
+            )))
+        }
         (false, Some(e)) => Err(Error::Download(format!(
             "Failed to download {}: {}",
             result.url, e
@@ -201,13 +210,13 @@ pub async fn execute(args: HasherDownloadArgs, config: &Config) -> Result<(), Er
         match process_download_result(result, &args, config).await {
             Ok(true) => had_failures = true,
             Ok(false) => (),
-            Err(_) if args.hash_options.skip_failures => had_failures = true,
+            Err(_) if !args.hash_options.fail_fast => had_failures = true,
             Err(e) => return Err(e),
         }
     }
 
     if had_failures {
-        info!("Completed with some failures (--skip-failures enabled)");
+        info!("Completed with some failures");
     }
 
     Ok(())

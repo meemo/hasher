@@ -1,5 +1,14 @@
 # Changelog/Version History
 
+## 0.8.13: Error handling and output improvements
+
+- Errors no longer fatal by default (Removed `--continue-on-error`)
+- Added `--fail-fast` to make errors fatal
+- Unified output control under `--silent-failures` (replaces `--skip-failures` and `--silent-skip`)
+- Error messages and skip notifications shown by default
+- Added short options for CLI arguments
+- Updated test file to reflect new changes
+
 ## 0.8.12: Bug fix: Arguments properly implemented
 
 - There were many issues with arguments not behaving properly now fixed:

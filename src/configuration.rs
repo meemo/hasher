@@ -32,20 +32,20 @@ pub struct HasherOptions {
     #[clap(flatten)]
     pub verbose: Verbosity<WarnLevel>,
 
-    /// Don't stop after encountering an error
+    /// Stop after encountering an error (by default errors are not fatal)
     #[arg(short = 'e', long)]
-    pub continue_on_error: bool,
+    pub fail_fast: bool,
 
-    /// Skip failures instead of erroring out (for downloads, etc)
-    #[arg(long)]
-    pub skip_failures: bool,
+    /// Silence error messages (errors will still not be fatal unless --fail-fast is used)
+    #[arg(short = 'Q', long)]
+    pub silent_failures: bool,
 
     /// Number of retries for operations (downloads, etc)
-    #[arg(long, default_value_t = 3)]
+    #[arg(short = 'r', long, default_value_t = 3)]
     pub retry_count: u32,
 
     /// Delay in seconds between retries
-    #[arg(long, default_value_t = 5)]
+    #[arg(short = 'd', long, default_value_t = 5)]
     pub retry_delay: u32,
 
     /// Only output to SQLite database (default: output to both SQLite and JSON)
@@ -73,11 +73,11 @@ pub struct HasherOptions {
     pub stdin: bool,
 
     /// Maximum number of directories to traverse
-    #[arg(long, default_value_t = 30)]
+    #[arg(short = 'm', long, default_value_t = 30)]
     pub max_depth: usize,
 
     /// Do not follow symlinks (useful in case there are loops)
-    #[arg(long)]
+    #[arg(short = 'L', long)]
     pub no_follow_symlinks: bool,
 
     /// Hash all files in the top level directory first before lower level directories
@@ -85,11 +85,11 @@ pub struct HasherOptions {
     pub breadth_first: bool,
 
     /// Run without actually saving anything
-    #[arg(long)]
+    #[arg(short = 't', long)]
     pub dry_run: bool,
 
     /// Override the database path from config
-    #[arg(long)]
+    #[arg(short = 'D', long)]
     pub db_path: Option<PathBuf>,
 
     /// Compress destination files with gzip
@@ -102,15 +102,15 @@ pub struct HasherOptions {
     pub compression_level: u32,
 
     /// Hash the compressed file instead of uncompressed
-    #[arg(long)]
+    #[arg(short = 'C', long)]
     pub hash_compressed: bool,
 
     /// Decompress gzipped files before hashing
-    #[arg(long)]
+    #[arg(short = 'x', long)]
     pub decompress: bool,
 
     /// Hash both compressed and decompressed content for gzipped files
-    #[arg(long)]
+    #[arg(short = 'B', long)]
     pub hash_both: bool,
 }
 
@@ -126,7 +126,7 @@ pub struct HasherHashArgs {
 #[derive(Parser, Debug)]
 pub struct HasherVerifyArgs {
     /// Only output when files fail to verify instead of outputting every file
-    #[arg(short = 'm', long)]
+    #[arg(short = 'M', long)]
     pub mismatches_only: bool,
 
     #[clap(flatten)]
@@ -141,20 +141,16 @@ pub struct HasherCopyArgs {
     pub destination: PathBuf,
 
     /// Store source path instead of destination path in database
-    #[arg(long)]
+    #[arg(short = 'S', long)]
     pub store_source_path: bool,
 
     /// Skip copying files that already exist in the destination
-    #[arg(long)]
+    #[arg(short = 'k', long)]
     pub skip_existing: bool,
 
     /// Skip hash comparison when checking existing files (only check if it exists/size)
-    #[arg(long)]
+    #[arg(short = 'H', long)]
     pub no_hash_existing: bool,
-
-    /// Don't output JSON when skipping existing files
-    #[arg(long)]
-    pub silent_skip: bool,
 
     #[clap(flatten)]
     pub hash_options: HasherOptions,
@@ -168,7 +164,7 @@ pub struct HasherDownloadArgs {
     pub destination: PathBuf,
 
     /// Do not replace already downloaded files
-    #[arg(long)]
+    #[arg(short = 'N', long)]
     pub no_clobber: bool,
 
     #[clap(flatten)]

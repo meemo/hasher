@@ -224,11 +224,13 @@ pub async fn process_single_file(
 
     if let Err(e) = result {
         let err_msg = format!("Failed to hash {}: {}", file_path.display(), e);
-        if args.continue_on_error {
-            error!("{}", err_msg);
-            Ok(())
-        } else {
+        if args.fail_fast {
             Err(e)
+        } else {
+            if !args.silent_failures {
+                error!("{}", err_msg);
+            }
+            Ok(())
         }
     } else {
         result
