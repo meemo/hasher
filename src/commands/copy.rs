@@ -125,8 +125,42 @@ fn file_existing(
         return Ok(false);
     }
 
-    let (source_compressed, source_data) = get_file_data(source)?;
-    let (dest_compressed, dest_data) = get_file_data(dest)?;
+    let compressor = compression::get_compressor(
+        compression::CompressionType::Gzip,
+        args.hash_options.compression_level,
+    );
+    let source_compressed = compressor.is_compressed_path(source);
+    let dest_compressed = compressor.is_compressed_path(dest);
+
+    let source_data = if source_compressed && args.hash_options.decompress {
+        let compressed = std::fs::read(source)?;
+        compression::decompress_bytes(&compressed, compression::CompressionType::Gzip)?
+    } else if !source_compressed && args.hash_options.hash_compressed {
+        let data = std::fs::read(source)?;
+        compression::compress_bytes(
+            &data,
+            compression::CompressionType::Gzip,
+            args.hash_options.compression_level,
+        )
+        .map_err(Error::IO)?
+    } else {
+        std::fs::read(source)?
+    };
+
+    let dest_data = if dest_compressed && args.hash_options.decompress {
+        let compressed = std::fs::read(dest)?;
+        compression::decompress_bytes(&compressed, compression::CompressionType::Gzip)?
+    } else if !dest_compressed && args.hash_options.hash_compressed {
+        let data = std::fs::read(dest)?;
+        compression::compress_bytes(
+            &data,
+            compression::CompressionType::Gzip,
+            args.hash_options.compression_level,
+        )
+        .map_err(Error::IO)?
+    } else {
+        std::fs::read(dest)?
+    };
 
     // Verify files haven't changed during comparison
     let final_source_meta = std::fs::metadata(source)?;
@@ -138,16 +172,6 @@ fn file_existing(
         || initial_dest_meta.len() != final_dest_meta.len()
     {
         return Err(Error::FileChanged);
-    }
-
-    // If compression states don't match and we're not about to compress/decompress,
-    // then we should copy
-    if source_compressed != dest_compressed
-        && !((args.hash_options.compress && !dest_compressed)
-            || (args.hash_options.decompress && dest_compressed))
-    {
-        debug!("Compression state mismatch between source and destination");
-        return Ok(false);
     }
 
     // If sizes don't match, we should copy
@@ -279,7 +303,14 @@ fn get_final_dest(dest: &Path, args: &HasherCopyArgs) -> PathBuf {
 }
 
 fn copy_file(source: &Path, dest: &Path, args: &HasherCopyArgs) -> Result<(), Error> {
-    if args.hash_options.compress {
+    let compressor = compression::get_compressor(
+        compression::CompressionType::Gzip,
+        args.hash_options.compression_level,
+    );
+    let source_compressed = compressor.is_compressed_path(source);
+
+    if args.hash_options.compress && !source_compressed {
+        // Compress uncompressed source
         let source_data = std::fs::read(source)?;
         let compressed = compression::compress_bytes(
             &source_data,
@@ -288,7 +319,14 @@ fn copy_file(source: &Path, dest: &Path, args: &HasherCopyArgs) -> Result<(), Er
         )
         .map_err(Error::IO)?;
         std::fs::write(dest, compressed)?;
+    } else if args.hash_options.decompress && source_compressed {
+        // Decompress compressed source
+        let compressed = std::fs::read(source)?;
+        let decompressed =
+            compression::decompress_bytes(&compressed, compression::CompressionType::Gzip)?;
+        std::fs::write(dest, decompressed)?;
     } else {
+        // Direct copy
         let reader = BufReader::new(File::open(source)?);
         let writer = BufWriter::new(File::create(dest)?);
         std::io::copy(&mut BufReader::new(reader), &mut BufWriter::new(writer))?;

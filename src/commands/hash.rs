@@ -19,9 +19,13 @@ pub async fn execute(args: HasherHashArgs, config: &Config) -> Result<(), Error>
             None
         };
 
-        if let Some(conn) = &mut conn {
-            output::process_stdin(&config, &input_path.to_string_lossy(), conn).await?;
-        }
+        output::process_stdin(
+            &config,
+            &input_path.to_string_lossy(),
+            &mut conn,
+            &args.hash_options,
+        )
+        .await?;
         Ok(())
     } else {
         output::process_directory(&input_path, &args.hash_options, &config).await
