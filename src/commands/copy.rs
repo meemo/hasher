@@ -292,14 +292,16 @@ fn get_final_dest(dest: &Path, args: &HasherCopyArgs) -> PathBuf {
             compression::CompressionType::Gzip,
             args.hash_options.compression_level,
         );
-        dest.with_extension(format!(
-            "{}{}",
-            dest.extension().unwrap_or_default().to_string_lossy(),
-            compressor.extension()
-        ))
-    } else {
-        dest.to_path_buf()
+        // Don't append .gz if the file is already compressed
+        if !compressor.is_compressed_path(dest) {
+            return dest.with_extension(format!(
+                "{}{}",
+                dest.extension().unwrap_or_default().to_string_lossy(),
+                compressor.extension()
+            ));
+        }
     }
+    dest.to_path_buf()
 }
 
 fn copy_file(source: &Path, dest: &Path, args: &HasherCopyArgs) -> Result<(), Error> {
@@ -462,8 +464,17 @@ pub async fn execute(args: HasherCopyArgs, config: &Config) -> Result<(), Error>
         copy_and_hash_file(source, &dest_path, &args, config, &mut db_conn).await?;
         1
     } else {
-        let base_source = source.canonicalize()?;
-        let base_dest = dest.canonicalize().unwrap_or_else(|_| dest.to_path_buf());
+        // Get absolute paths without the \\?\ prefix on Windows
+        let base_source = if source.is_absolute() {
+            source.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(source)
+        };
+        let base_dest = if dest.is_absolute() {
+            dest.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(dest)
+        };
         copy_directory(&base_source, &base_dest, &args, config, &mut db_conn).await?
     };
 

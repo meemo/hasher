@@ -1,5 +1,10 @@
 # Changelog/Version History
 
+## 0.8.14: Bug fixes: File extension and windows path handling
+
+- Fixed a bug where `copy`ing compressed files would incorrectly duplicate extensions (e.g., `.tar.gz` becoming `.tar.gz.gz`)
+- Fixed Windows paths having a `\\\\?\\` prefix
+
 ## 0.8.13: Error handling and output improvements
 
 - Errors no longer fatal by default (Removed `--continue-on-error`)
