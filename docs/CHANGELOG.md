@@ -1,5 +1,11 @@
 # Changelog/Version History
 
+## 0.8.15: Download output improvements
+
+- Modified download command to output a single JSON object per download that combines both download status and hash information
+- Fixed error handling across multiple commands to be more consistent
+- Updated error type to be cloneable and handle errors more uniformly
+
 ## 0.8.14: Bug fixes: File extension and windows path handling
 
 - Fixed a bug where `copy`ing compressed files would incorrectly duplicate extensions (e.g., `.tar.gz` becoming `.tar.gz.gz`)

@@ -118,10 +118,10 @@ async fn main() {
     };
 
     let result = match args.command {
-        HasherCommand::Hash(args) => commands::hash::execute(args, &config).await,
+        HasherCommand::Hash(args) => commands::hash::execute(args, &config).await.map(|_| ()),
         HasherCommand::Copy(args) => commands::copy::execute(args, &config).await,
         HasherCommand::Verify(args) => commands::verify::execute(args, &config).await,
-        HasherCommand::Download(args) => commands::download::execute(args, &config).await,
+        HasherCommand::Download(args) => commands::download::execute(args, &config).await.map(|_| ()),
     };
 
     if let Err(e) = result {

@@ -5,7 +5,7 @@ use crate::configuration::{Config, HasherHashArgs};
 use crate::output;
 use crate::utils::Error;
 
-pub async fn execute(args: HasherHashArgs, config: &Config) -> Result<(), Error> {
+pub async fn execute(args: HasherHashArgs, config: &Config) -> Result<Option<serde_json::Map<String, serde_json::Value>>, Error> {
     let input_path = args.source.unwrap_or_else(|| PathBuf::from("."));
 
     if args.hash_options.stdin {
@@ -13,7 +13,7 @@ pub async fn execute(args: HasherHashArgs, config: &Config) -> Result<(), Error>
             Some(
                 SqliteConnection::connect(&config.database.db_string)
                     .await
-                    .map_err(Error::Database)?,
+                    .map_err(Error::from)?,
             )
         } else {
             None
@@ -25,8 +25,7 @@ pub async fn execute(args: HasherHashArgs, config: &Config) -> Result<(), Error>
             &mut conn,
             &args.hash_options,
         )
-        .await?;
-        Ok(())
+        .await
     } else {
         output::process_directory(&input_path, &args.hash_options, &config).await
     }

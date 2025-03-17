@@ -60,7 +60,7 @@ async fn insert_hash_to_db(
     }
 }
 
-fn output_json(file_path: &Path, file_size: usize, hashes: &[(&str, Vec<u8>)], pretty: bool) {
+fn build_hash_json(file_path: &Path, file_size: usize, hashes: &[(&str, Vec<u8>)]) -> serde_json::Map<String, serde_json::Value> {
     let mut hash_map = serde_json::Map::new();
     hash_map.insert(
         "file_path".to_string(),
@@ -72,6 +72,12 @@ fn output_json(file_path: &Path, file_size: usize, hashes: &[(&str, Vec<u8>)], p
         hash_map.insert(hash_name.to_string(), json!(hex::encode(hash_data)));
     }
 
+    hash_map
+}
+
+fn output_json(file_path: &Path, file_size: usize, hashes: &[(&str, Vec<u8>)], pretty: bool) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let hash_map = build_hash_json(file_path, file_size, hashes);
+
     let output = if pretty {
         serde_json::to_string_pretty(&hash_map)
     } else {
@@ -80,6 +86,7 @@ fn output_json(file_path: &Path, file_size: usize, hashes: &[(&str, Vec<u8>)], p
     .unwrap();
 
     println!("{}", output);
+    Some(hash_map)
 }
 
 fn log_hash_results(file_path: &Path, hashes: &[(&str, Vec<u8>)]) {
@@ -94,7 +101,7 @@ pub async fn process_single_file(
     config: &Config,
     args: &HasherOptions,
     db_conn: &mut Option<SqliteConnection>,
-) -> Result<(), Error> {
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, Error> {
     let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
     let compressor = compression::get_compressor(compression::CompressionType::Gzip, 6);
 
@@ -117,7 +124,7 @@ pub async fn process_single_file(
                 compression::CompressionType::Gzip,
                 args.compression_level,
             )
-            .map_err(Error::IO)?
+            .map_err(Error::from)?
         };
 
         if args.hash_both {
@@ -128,7 +135,8 @@ pub async fn process_single_file(
             let decompressed = compression::decompress_bytes(
                 &compressed_data,
                 compression::CompressionType::Gzip,
-            )?;
+            )
+            .map_err(Error::from)?;
             let (decomp_size, decomp_hashes) = process_file(&decompressed, file_path)?;
 
             // Output both results
@@ -146,18 +154,23 @@ pub async fn process_single_file(
                 }
 
                 if do_json {
-                    output_json(file_path, comp_size, &comp_hashes, args.pretty_json);
+                    let hash_info = output_json(file_path, comp_size, &comp_hashes, args.pretty_json);
                     let decomp_path = file_path.with_extension("");
                     output_json(&decomp_path, decomp_size, &decomp_hashes, args.pretty_json);
+                    Ok(hash_info)
+                } else {
+                    Ok(None)
                 }
+            } else {
+                Ok(None)
             }
-            Ok(())
         } else if args.decompress {
             // Only hash decompressed state
             let decompressed = compression::decompress_bytes(
                 &compressed_data,
                 compression::CompressionType::Gzip,
-            )?;
+            )
+            .map_err(Error::from)?;
             let (size, hashes) = process_file(&decompressed, file_path)?;
             log_hash_results(file_path, &hashes);
 
@@ -172,10 +185,13 @@ pub async fn process_single_file(
                 }
 
                 if do_json {
-                    output_json(file_path, size, &hashes, args.pretty_json);
+                    Ok(output_json(file_path, size, &hashes, args.pretty_json))
+                } else {
+                    Ok(None)
                 }
+            } else {
+                Ok(None)
             }
-            Ok(())
         } else {
             // Only hash compressed state
             let (size, hashes) = process_file(&compressed_data, file_path)?;
@@ -192,10 +208,13 @@ pub async fn process_single_file(
                 }
 
                 if do_json {
-                    output_json(file_path, size, &hashes, args.pretty_json);
+                    Ok(output_json(file_path, size, &hashes, args.pretty_json))
+                } else {
+                    Ok(None)
                 }
+            } else {
+                Ok(None)
             }
-            Ok(())
         }
     } else {
         match hasher.hash_file(file_path) {
@@ -213,24 +232,27 @@ pub async fn process_single_file(
                     }
 
                     if do_json {
-                        output_json(file_path, file_size, &hashes, args.pretty_json);
+                        Ok(output_json(file_path, file_size, &hashes, args.pretty_json))
+                    } else {
+                        Ok(None)
                     }
+                } else {
+                    Ok(None)
                 }
-                Ok(())
             }
             Err(e) => Err(Error::from(e)),
         }
     };
 
-    if let Err(e) = result {
+    if let Err(e) = &result {
         let err_msg = format!("Failed to hash {}: {}", file_path.display(), e);
         if args.fail_fast {
-            Err(e)
+            Err(e.clone())
         } else {
             if !args.silent_failures {
                 error!("{}", err_msg);
             }
-            Ok(())
+            Ok(None)
         }
     } else {
         result
@@ -242,7 +264,7 @@ pub async fn process_stdin(
     file_path: &str,
     conn: &mut Option<SqliteConnection>,
     args: &HasherOptions,
-) -> Result<(), Error> {
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, Error> {
     let mut buffer = Vec::new();
     std::io::stdin().read_to_end(&mut buffer)?;
 
@@ -259,22 +281,22 @@ pub async fn process_stdin(
     }
 
     if do_json {
-        output_json(
+        Ok(output_json(
             Path::new(file_path),
             buffer.len(),
             &hashes,
             args.pretty_json,
-        );
+        ))
+    } else {
+        Ok(None)
     }
-
-    Ok(())
 }
 
 pub async fn process_directory(
     path_to_hash: &Path,
     args: &HasherOptions,
     config: &Config,
-) -> Result<(), Error> {
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, Error> {
     let mut db_conn = if !args.json_only {
         Some(SqliteConnection::connect(&config.database.db_string).await?)
     } else {
@@ -282,6 +304,7 @@ pub async fn process_directory(
     };
 
     let mut file_count = 0;
+    let mut last_hash_info = None;
     let walker = WalkDir::new(path_to_hash)
         .min_depth(0)
         .max_depth(args.max_depth)
@@ -293,7 +316,7 @@ pub async fn process_directory(
         if let Ok(entry) = entry {
             if !entry.path().is_dir() {
                 file_count += 1;
-                process_single_file(entry.path(), config, args, &mut db_conn).await?;
+                last_hash_info = process_single_file(entry.path(), config, args, &mut db_conn).await?;
             }
         }
     }
@@ -304,5 +327,5 @@ pub async fn process_directory(
         path_to_hash.display()
     );
 
-    Ok(())
+    Ok(last_hash_info)
 }

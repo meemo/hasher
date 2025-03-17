@@ -98,7 +98,7 @@ fn get_file_data(path: &Path) -> Result<(bool, Vec<u8>), Error> {
         // Verify it's actually a gzip file by trying to decompress
         match compression::decompress_bytes(&data, compression::CompressionType::Gzip) {
             Ok(decompressed) => Ok((true, decompressed)),
-            Err(_) => Err(Error::Config("Invalid gzip file".into())),
+            Err(_) => Err(Error::Config("Invalid gzip file".to_string())),
         }
     } else {
         Ok((false, data))
@@ -142,7 +142,7 @@ fn file_existing(
             compression::CompressionType::Gzip,
             args.hash_options.compression_level,
         )
-        .map_err(Error::IO)?
+        .map_err(Error::from)?
     } else {
         std::fs::read(source)?
     };
@@ -157,7 +157,7 @@ fn file_existing(
             compression::CompressionType::Gzip,
             args.hash_options.compression_level,
         )
-        .map_err(Error::IO)?
+        .map_err(Error::from)?
     } else {
         std::fs::read(dest)?
     };
@@ -319,7 +319,7 @@ fn copy_file(source: &Path, dest: &Path, args: &HasherCopyArgs) -> Result<(), Er
             compression::CompressionType::Gzip,
             args.hash_options.compression_level,
         )
-        .map_err(Error::IO)?;
+        .map_err(Error::from)?;
         std::fs::write(dest, compressed)?;
     } else if args.hash_options.decompress && source_compressed {
         // Decompress compressed source
@@ -422,7 +422,7 @@ async fn copy_directory(
         if path.is_file() {
             let rel_path = path
                 .strip_prefix(base_source)
-                .map_err(|_| Error::Config("Failed to strip prefix".into()))?;
+                .map_err(|_| Error::Config("Failed to strip prefix".to_string()))?;
             let dest_path = base_dest.join(rel_path);
 
             if let Err(e) = copy_and_hash_file(path, &dest_path, args, config, db_conn).await {
@@ -445,7 +445,7 @@ pub async fn execute(args: HasherCopyArgs, config: &Config) -> Result<(), Error>
     let dest = &args.destination;
 
     if !source.exists() {
-        return Err(Error::Config("Source path does not exist".into()));
+        return Err(Error::Config("Source path does not exist".to_string()));
     }
 
     let mut db_conn = if !args.hash_options.json_only {

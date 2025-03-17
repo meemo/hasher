@@ -167,7 +167,7 @@ async fn _hash_compressed_file(
             compression::CompressionType::Gzip,
             args.hash_options.compression_level,
         )
-        .map_err(Error::IO)?
+        .map_err(Error::from)?
     } else {
         return _hash_file(file_path).await;
     };

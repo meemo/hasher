@@ -4,11 +4,11 @@ use std::io;
 use sqlx;
 use tokio::task::JoinError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
-    IO(io::Error),
+    IO(String),
     ThreadPanic,
-    Database(sqlx::Error),
+    Database(String),
     FileChanged,
     DiskSpace,
     DbLocked,
@@ -21,7 +21,7 @@ impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         match e.kind() {
             io::ErrorKind::OutOfMemory => Error::DiskSpace,
-            _ => Error::IO(e),
+            _ => Error::IO(e.to_string()),
         }
     }
 }
@@ -43,7 +43,7 @@ impl From<sqlx::Error> for Error {
             sqlx::Error::Database(e) if e.code().as_deref() == Some("SQLITE_BUSY") => {
                 Error::DbLocked
             }
-            _ => Error::Database(e),
+            _ => Error::Database(e.to_string()),
         }
     }
 }
@@ -51,9 +51,9 @@ impl From<sqlx::Error> for Error {
 impl From<walkdir::Error> for Error {
     fn from(e: walkdir::Error) -> Self {
         if let Some(inner) = e.io_error() {
-            Error::IO(io::Error::new(inner.kind(), inner.to_string()))
+            Error::IO(inner.to_string())
         } else {
-            Error::IO(io::Error::new(io::ErrorKind::Other, e))
+            Error::IO(e.to_string())
         }
     }
 }
@@ -74,15 +74,7 @@ impl fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Error::IO(e) => Some(e),
-            Error::Database(e) => Some(e),
-            _ => None,
-        }
-    }
-}
+impl std::error::Error for Error {}
 
 impl From<JoinError> for Error {
     fn from(e: JoinError) -> Self {
