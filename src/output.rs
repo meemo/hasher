@@ -164,8 +164,8 @@ pub async fn process_single_file(
             } else {
                 Ok(None)
             }
-        } else if args.decompress {
-            // Only hash decompressed state
+        } else if args.decompress || args.hash_uncompressed {
+            // Only hash decompressed state - applies for both decompress and hash_uncompressed
             let decompressed = compression::decompress_bytes(
                 &compressed_data,
                 compression::CompressionType::Gzip,

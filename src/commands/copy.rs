@@ -132,7 +132,8 @@ fn file_existing(
     let source_compressed = compressor.is_compressed_path(source);
     let dest_compressed = compressor.is_compressed_path(dest);
 
-    let source_data = if source_compressed && args.hash_options.decompress {
+    let source_data = if (source_compressed && args.hash_options.decompress) || 
+                     (source_compressed && args.hash_options.hash_uncompressed) {
         let compressed = std::fs::read(source)?;
         compression::decompress_bytes(&compressed, compression::CompressionType::Gzip)?
     } else if !source_compressed && args.hash_options.hash_compressed {
@@ -147,7 +148,8 @@ fn file_existing(
         std::fs::read(source)?
     };
 
-    let dest_data = if dest_compressed && args.hash_options.decompress {
+    let dest_data = if (dest_compressed && args.hash_options.decompress) ||
+                     (dest_compressed && args.hash_options.hash_uncompressed) {
         let compressed = std::fs::read(dest)?;
         compression::decompress_bytes(&compressed, compression::CompressionType::Gzip)?
     } else if !dest_compressed && args.hash_options.hash_compressed {
@@ -344,11 +346,10 @@ async fn hash_file_based_on_options(
     db_conn: &mut Option<sqlx::SqliteConnection>,
 ) -> Result<(), Error> {
     let mut hasher = Hasher::new(HashConfig::from(&config.hashes));
+    let compressor = compression::get_compressor(compression::CompressionType::Gzip, 6);
+    let is_compressed = compressor.is_compressed_path(source);
 
     if args.hash_options.hash_both {
-        let compressor = compression::get_compressor(compression::CompressionType::Gzip, 6);
-        let is_compressed = compressor.is_compressed_path(source);
-
         if is_compressed {
             _hash_compressed_file(source, &mut hasher, args, config, db_conn).await?;
         } else {
@@ -358,6 +359,32 @@ async fn hash_file_based_on_options(
                 final_dest
             };
             _hash_file(path_to_hash, &mut hasher, args, config, db_conn).await?;
+        }
+    } else if args.hash_options.hash_uncompressed && is_compressed {
+        // Handle compressed source when hash_uncompressed is set
+        // Get the file data and decompress it
+        if let Ok((_, data)) = get_file_data(source) {
+            match hasher.hash_single_buffer(&data) {
+                Ok(hashes) => {
+                    let path_to_store = if args.store_source_path {
+                        source
+                    } else {
+                        final_dest
+                    };
+                    process_hash_results(path_to_store, data.len(), &hashes, args, config, db_conn).await?;
+                }
+                Err(e) => {
+                    if !args.hash_options.fail_fast {
+                        error!(
+                            "Failed to hash decompressed data for {}: {}",
+                            source.display(),
+                            e
+                        );
+                    } else {
+                        return Err(Error::from(e));
+                    }
+                }
+            }
         }
     } else {
         let path_to_hash = if args.store_source_path {

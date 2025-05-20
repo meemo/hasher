@@ -34,8 +34,9 @@ fn setup_logging<T: clap_verbosity_flag::LogLevel>(verbose: &Verbosity<T>) {
 #[tokio::main]
 async fn main() {
     let start_time = std::time::Instant::now();
-    let args = HasherCli::parse();
+    let mut args = HasherCli::parse();
 
+    // Get references to the hasher options and config file
     let (hash_options, config_file) = match &args.command {
         HasherCommand::Hash(args) => (&args.hash_options, &args.hash_options.config_file),
         HasherCommand::Copy(args) => (&args.hash_options, &args.hash_options.config_file),
@@ -45,12 +46,29 @@ async fn main() {
 
     setup_logging(&hash_options.verbose);
 
+    // Load the config file
     let config = match configuration::get_config(config_file, hash_options.db_path.as_deref()) {
         Ok(config) => config,
         Err(e) => {
             error!("Configuration error: {}", e);
             exit(1);
         }
+    };
+    
+    // Apply config defaults to command line options (mutable version needed)
+    match &mut args.command {
+        HasherCommand::Hash(args) => {
+            configuration::apply_config_defaults(&mut args.hash_options, &config);
+        },
+        HasherCommand::Copy(args) => {
+            configuration::apply_config_defaults(&mut args.hash_options, &config);
+        },
+        HasherCommand::Verify(args) => {
+            configuration::apply_config_defaults(&mut args.hash_options, &config);
+        },
+        HasherCommand::Download(args) => {
+            configuration::apply_config_defaults(&mut args.hash_options, &config);
+        },
     };
 
     // Initialize database for commands that need it

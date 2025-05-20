@@ -52,3 +52,26 @@ shabal224 = false
 shabal256 = false
 shabal384 = false
 shabal512 = false
+
+# Command line option defaults
+# All options can be specified here and will be used as defaults
+# Command line arguments will always override these settings
+[options]
+# fail_fast = true                # Stop after encountering an error 
+# silent_failures = true          # Silence error messages 
+# retry_count = 5                 # Number of retries for operations (default: 3)
+# retry_delay = 10                # Delay in seconds between retries (default: 5)
+# sql_only = true                 # Only output to SQLite database
+# json_only = true                # Only output to JSON
+pretty_json = true                # Pretty print the JSON output
+# use_wal = true                  # Use sqlite Write Ahead Logging
+# max_depth = 50                  # Maximum number of directories to traverse (default: 30)
+# no_follow_symlinks = true       # Do not follow symlinks
+# breadth_first = true            # Hash top level directory files first
+# dry_run = true                  # Run without actually saving anything
+# compress = true                 # Compress files when writing to disk
+# compression_level = 9           # Compression level (1-9, default: 6)
+# hash_compressed = true          # Hash the compressed file instead of uncompressed
+# decompress = true               # Decompress files before hashing
+# hash_both = true                # Hash both compressed and decompressed content
+# hash_uncompressed = true        # Always hash uncompressed content

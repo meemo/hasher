@@ -1,5 +1,18 @@
 # Changelog/Version History
 
+## 0.8.16: Confirguration enhancements, hash uncompressed option
+
+- Added `--hash-uncompressed` (`-U`) option to always hash the uncompressed content even when source is compressed
+- This is particularly useful when copying compressed files and wanting to store the hash of the original uncompressed content
+- Implemented consistently across all commands (hash, verify, copy, download)
+- Fixed handling of multiple compression-related flags to ensure consistent behavior
+- Added support for specifying command line options as defaults in `config.toml`
+- Added `[options]` section to config file for setting command line defaults
+- Improved documentation around compression options and flag precedence
+- Added fallback for missing config file with sensible defaults
+- Enhanced documentation for database behavior and Windows path handling
+- Clarified that command line options always override config file settings
+
 ## 0.8.15: Download output improvements
 
 - Modified download command to output a single JSON object per download that combines both download status and hash information

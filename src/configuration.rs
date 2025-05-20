@@ -112,6 +112,10 @@ pub struct HasherOptions {
     /// Hash both compressed and decompressed content for gzipped files
     #[arg(short = 'B', long)]
     pub hash_both: bool,
+
+    /// Always hash the uncompressed content even when source is compressed
+    #[arg(short = 'U', long)]
+    pub hash_uncompressed: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -171,7 +175,7 @@ pub struct HasherDownloadArgs {
     pub hash_options: HasherOptions,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct Hashes {
     pub crc32: Option<bool>,
     pub md2: Option<bool>,
@@ -229,24 +233,130 @@ pub struct Database {
     pub table_name: String,
 }
 
+#[derive(Deserialize, Default)]
+pub struct Options {
+    pub fail_fast: Option<bool>,
+    pub silent_failures: Option<bool>,
+    pub retry_count: Option<u32>,
+    pub retry_delay: Option<u32>,
+    pub sql_only: Option<bool>,
+    pub json_only: Option<bool>,
+    pub pretty_json: Option<bool>,
+    pub use_wal: Option<bool>,
+    pub stdin: Option<bool>,
+    pub max_depth: Option<usize>,
+    pub no_follow_symlinks: Option<bool>,
+    pub breadth_first: Option<bool>,
+    pub dry_run: Option<bool>,
+    pub compress: Option<bool>,
+    pub compression_level: Option<u32>,
+    pub hash_compressed: Option<bool>,
+    pub decompress: Option<bool>,
+    pub hash_both: Option<bool>,
+    pub hash_uncompressed: Option<bool>,
+}
+
 #[derive(Deserialize)]
 pub struct Config {
     pub database: Database,
     pub hashes: Hashes,
+    pub options: Option<Options>,
 }
 
 pub fn get_config(path: &Path, db_path_override: Option<&Path>) -> Result<Config, Error> {
-    let config_str = fs::read_to_string(path)
-        .map_err(|e| Error::Config(format!("Failed to read config file: {}", e)))?;
+    // Try to read the config file, but use defaults if not found
+    let config_str = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                // Use default config if file not found
+                return Ok(Config {
+                    database: Database {
+                        db_string: "sqlite://myhashes.db".to_string(),
+                        table_name: "hashes".to_string(),
+                    },
+                    hashes: Hashes {
+                        crc32: Some(true),
+                        md5: Some(true),
+                        sha1: Some(true),
+                        sha256: Some(true),
+                        // All other hashes default to false
+                        ..Default::default()
+                    },
+                    options: Some(Options::default()),
+                });
+            } else {
+                return Err(Error::Config(format!("Failed to read config file: {}", e)));
+            }
+        }
+    };
 
     let mut config: Config = toml::from_str(&config_str)
         .map_err(|e| Error::Config(format!("Invalid config file format: {}", e)))?;
 
+    // Command line options always override config file settings
     if let Some(db_path) = db_path_override {
         config.database.db_string = format!("sqlite://{}", db_path.display());
     }
 
     Ok(config)
+}
+
+// Apply config file options to command-line options, respecting command-line precedence
+pub fn apply_config_defaults(options: &mut HasherOptions, config: &Config) {
+    // If no options section in config, nothing to do
+    let Some(cfg_opts) = &config.options else { return };
+
+    // Helper macro to apply boolean options (only set true if not already set)
+    macro_rules! apply_bool_option {
+        ($option:ident) => {
+            if let Some(true) = cfg_opts.$option {
+                if !options.$option {
+                    options.$option = true;
+                }
+            }
+        };
+    }
+
+    // Helper macro to apply numeric options (only set if command line has default value)
+    macro_rules! apply_numeric_option {
+        ($option:ident, $default:expr) => {
+            if let Some(value) = cfg_opts.$option {
+                if options.$option == $default {
+                    options.$option = value;
+                }
+            }
+        };
+    }
+
+    // Apply boolean options
+    apply_bool_option!(fail_fast);
+    apply_bool_option!(silent_failures);
+    apply_bool_option!(sql_only);
+    apply_bool_option!(json_only);
+    apply_bool_option!(pretty_json);
+    apply_bool_option!(use_wal);
+    apply_bool_option!(stdin);
+    apply_bool_option!(no_follow_symlinks);
+    apply_bool_option!(breadth_first);
+    apply_bool_option!(dry_run);
+    apply_bool_option!(compress);
+    apply_bool_option!(hash_compressed);
+    apply_bool_option!(decompress);
+    apply_bool_option!(hash_both);
+    apply_bool_option!(hash_uncompressed);
+
+    // Apply numeric options with their default values
+    apply_numeric_option!(retry_count, 3);
+    apply_numeric_option!(retry_delay, 5);
+    apply_numeric_option!(max_depth, 30);
+
+    // Special handling for compression_level to ensure it's clamped
+    if let Some(level) = cfg_opts.compression_level {
+        if options.compression_level == 6 { // default value
+            options.compression_level = level.clamp(1, 9);
+        }
+    }
 }
 
 impl From<&Hashes> for HashConfig {

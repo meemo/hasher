@@ -88,8 +88,47 @@ With all commands supporting the following basic options (though some may do not
   - Decompress gzip compressed files before hashing
 - `-B`/`--hash-both`
   - Hash both compressed and decompressed content for compressed files
+- `-U`/`--hash-uncompressed`
+  - Always hash the uncompressed content even when source is compressed
 - `--compression-level`
   - Compression level (1-9, default: 6)
+
+### Compression Handling
+
+The compression functionality in hasher is provided as a convenience feature and currently only supports gzip. File compression state is determined solely by the `.gz` file extension. When using compression-related options, here are important behaviors to understand:
+
+- **Flag Precedence:** When multiple compression flags are used together, they follow this precedence:
+  1. `--hash-both` takes highest precedence (hashes both compressed and uncompressed content)
+  2. `--hash-uncompressed` or `--decompress` (hashes uncompressed content)
+  3. `--hash-compressed` (hashes compressed content)
+  4. Default behavior (hashes the file in its current state)
+
+- **Copy Command:** When using `copy -z`, files are compressed at the destination and get a `.gz` extension. By default, the hash is calculated from the source file (uncompressed) unless specified otherwise.
+
+- **Download Command:** URLs downloaded with `download -z` are saved with a `.gz` extension and are compressed during download.
+
+- **Verification:** When verifying compressed files, the same compression flag used during hashing must be used for verification to match properly.
+
+### Command Line Options vs Config File
+
+Command line options always override settings in the config file. The config file (default: `config.toml`) primarily controls:
+
+1. Which hash algorithms are calculated (default: CRC32, MD5, SHA1, and SHA256)
+2. Database configuration (path and table name)
+
+### Database Behavior
+
+- The default database path is `myhashes.db` in the current directory
+- SQLite Write-Ahead Logging (WAL) can be enabled with `-w` for better performance with concurrent access
+- The database is automatically created if it doesn't exist
+- Database operations use automatic retries if the database is locked (e.g., by another process)
+- Each successful hash operation inserts a record with the file path, size, and enabled hash algorithms
+
+### Path Handling Notes
+
+- Windows paths are handled automatically with special handling for `\\?\` prefixes
+- The `download` command creates directory structures based on the URL path components (hostname/path/filename)
+- Path sanitization is applied to downloaded filenames to ensure they're valid on the filesystem
 
 ### `hash`: Hash Files/Directories
 
@@ -145,8 +184,25 @@ Special options:
 
 ### Config File
 
-The config file (default `config.toml`) controls which hashes are calculated and database settings. See the example
-[`config.toml`](config.toml) in the repository root for all options.
+The config file (default `config.toml`) controls which hashes are calculated, database settings, and can provide defaults for all command line options. See the example [`config.toml`](config.toml) in the repository root for all available options.
+
+The config file has three main sections:
+- `[database]` - Controls database connection and table name
+- `[hashes]` - Controls which hash algorithms are enabled (true/false)
+- `[options]` - Provides defaults for command line options
+
+All command line options can be specified in the config file as defaults, which makes it easy to create standard configurations for different purposes. For example:
+
+```toml
+[options]
+pretty_json = true        # Always pretty-print JSON output
+max_depth = 50            # Set a deeper directory traversal than default
+compression_level = 9     # Use maximum compression
+```
+
+If a config file is not found, the program will run with sensible defaults (CRC32, MD5, SHA1, and SHA256 algorithms enabled).
+
+Note: Command line options always take precedence over config file settings. This allows you to override specific options without modifying the config file.
 
 ## Supported Hashes
 

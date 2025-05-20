@@ -188,8 +188,8 @@ async fn _hash_compressed_file(
         } else {
             Ok((Some(decompressed.len()), decomp_result))
         }
-    } else if args.hash_options.decompress {
-        // Only hash decompressed state
+    } else if args.hash_options.decompress || args.hash_options.hash_uncompressed {
+        // Only hash decompressed state - applies for both decompress and hash_uncompressed
         let decompressed =
             compression::decompress_bytes(&compressed_data, compression::CompressionType::Gzip)?;
         let hashes = hasher.hash_single_buffer(&decompressed)?;
