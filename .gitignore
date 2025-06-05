@@ -1,6 +1,7 @@
 # IDE/Editor files
 .idea/
 .vscode/
+.claude/
 [._]*.s[a-w][a-z]
 
 # Mac files

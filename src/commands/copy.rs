@@ -111,7 +111,11 @@ fn file_existing(
     args: &HasherCopyArgs,
     _config: &Config,
 ) -> Result<bool, Error> {
-    if !args.skip_existing || !dest.exists() {
+    if !args.skip_existing {
+        return Ok(false);
+    }
+    
+    if !dest.exists() {
         return Ok(false);
     }
 
@@ -132,6 +136,11 @@ fn file_existing(
     let source_compressed = compressor.is_compressed_path(source);
     let dest_compressed = compressor.is_compressed_path(dest);
 
+    // Ensure source file exists before trying to read it
+    if !source.exists() {
+        return Err(Error::Config(format!("Source file does not exist: {}", source.display())));
+    }
+
     let source_data = if (source_compressed && args.hash_options.decompress) || 
                      (source_compressed && args.hash_options.hash_uncompressed) {
         let compressed = std::fs::read(source)?;
@@ -147,6 +156,12 @@ fn file_existing(
     } else {
         std::fs::read(source)?
     };
+
+    // Double-check destination exists before trying to read it
+    if !dest.exists() {
+        debug!("Destination file disappeared after initial check: {}", dest.display());
+        return Ok(false);
+    }
 
     let dest_data = if (dest_compressed && args.hash_options.decompress) ||
                      (dest_compressed && args.hash_options.hash_uncompressed) {
@@ -289,11 +304,12 @@ async fn _hash_compressed_file(
 }
 
 fn get_final_dest(dest: &Path, args: &HasherCopyArgs) -> PathBuf {
+    let compressor = compression::get_compressor(
+        compression::CompressionType::Gzip,
+        args.hash_options.compression_level,
+    );
+    
     if args.hash_options.compress {
-        let compressor = compression::get_compressor(
-            compression::CompressionType::Gzip,
-            args.hash_options.compression_level,
-        );
         // Don't append .gz if the file is already compressed
         if !compressor.is_compressed_path(dest) {
             return dest.with_extension(format!(
@@ -301,6 +317,24 @@ fn get_final_dest(dest: &Path, args: &HasherCopyArgs) -> PathBuf {
                 dest.extension().unwrap_or_default().to_string_lossy(),
                 compressor.extension()
             ));
+        }
+    } else if args.hash_options.decompress {
+        // Remove .gz extension if file is compressed
+        if compressor.is_compressed_path(dest) {
+            // Get the extension without the .gz
+            if let Some(ext) = dest.extension() {
+                let ext_str = ext.to_string_lossy();
+                if ext_str == "gz" {
+                    // No extension before .gz
+                    return dest.with_extension("");
+                } else if ext_str.ends_with(".gz") {
+                    // Has extension before .gz (e.g., .tar.gz)
+                    let base_ext = ext_str.trim_end_matches(".gz");
+                    if !base_ext.is_empty() {
+                        return dest.with_extension(base_ext);
+                    }
+                }
+            }
         }
     }
     dest.to_path_buf()
@@ -331,9 +365,9 @@ fn copy_file(source: &Path, dest: &Path, args: &HasherCopyArgs) -> Result<(), Er
         std::fs::write(dest, decompressed)?;
     } else {
         // Direct copy
-        let reader = BufReader::new(File::open(source)?);
-        let writer = BufWriter::new(File::create(dest)?);
-        std::io::copy(&mut BufReader::new(reader), &mut BufWriter::new(writer))?;
+        let mut reader = BufReader::new(File::open(source)?);
+        let mut writer = BufWriter::new(File::create(dest)?);
+        std::io::copy(&mut reader, &mut writer)?;
     }
     Ok(())
 }

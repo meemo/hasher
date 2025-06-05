@@ -1,5 +1,15 @@
 # Changelog/Version History
 
+## 0.8.17: Bug fixes: critical copy and decompression fixes
+
+- Fixed critical bug where "hash match" skip was incorrectly triggered for non-existent destination files
+- Improved file existence checking logic in copy command with clearer separation of conditions
+- Added redundant safety checks to prevent attempting to read non-existent files
+- Fixed double-buffering performance issue in direct file copy operations
+- Enhanced error handling for edge cases where files might disappear during processing
+- Fixed `--decompress` option to properly remove the .gz extension from output files
+- Modified destination path handling to correctly strip .gz extension when decompressing
+
 ## 0.8.16: Confirguration enhancements, hash uncompressed option
 
 - Added `--hash-uncompressed` (`-U`) option to always hash the uncompressed content even when source is compressed
