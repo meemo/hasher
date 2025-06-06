@@ -216,14 +216,14 @@ async fn verify_file(
     path: &Path,
     args: &HasherVerifyArgs,
     db_conn: &mut sqlx::SqliteConnection,
-) -> Result<(), Error> {
+) -> Result<(bool, bool), Error> {
     let stored_hashes = get_file_hashes(path, db_conn).await?;
     let (found_crc32, found_sha256, stored_crc32, stored_sha256, stored_size) =
         extract_stored_hashes(&stored_hashes);
 
     if !found_crc32 || !found_sha256 {
         warn!("Missing required hashes for {}", path.display());
-        return Ok(());
+        return Ok((false, false));
     }
 
     let (current_size, current_hashes) = if !path.exists() {
@@ -266,14 +266,12 @@ async fn verify_file(
         )
     };
 
-    if failed_hash.is_some() || current_size.is_none() || !args.mismatches_only {
-        let output = build_verification_json(
-            path,
-            current_size,
-            stored_size,
-            failed_hash,
-            current_size.is_none(),
-        );
+    let is_missing = current_size.is_none();
+    let has_mismatch = failed_hash.is_some() && !is_missing;
+
+    if has_mismatch || is_missing || !args.mismatches_only {
+        let output =
+            build_verification_json(path, current_size, stored_size, failed_hash, is_missing);
 
         if args.hash_options.pretty_json {
             if let Ok(parsed) = serde_json::from_str::<Value>(&output) {
@@ -286,7 +284,7 @@ async fn verify_file(
         }
     }
 
-    Ok(())
+    Ok((is_missing, has_mismatch))
 }
 
 pub async fn execute(args: HasherVerifyArgs, config: &Config) -> Result<(), Error> {
@@ -302,36 +300,12 @@ pub async fn execute(args: HasherVerifyArgs, config: &Config) -> Result<(), Erro
 
     for path in paths {
         match verify_file(&path, &args, &mut db_conn).await {
-            Ok(()) => {
+            Ok((is_missing, has_mismatch)) => {
                 processed_count += 1;
-                if !path.exists() {
+                if is_missing {
                     missing_count += 1;
-                } else {
-                    // Check if file was mismatched by re-reading it to validate
-                    if let Ok(stored_hashes) = get_file_hashes(&path, &mut db_conn).await {
-                        let (found_crc32, found_sha256, stored_crc32, stored_sha256, _) =
-                            extract_stored_hashes(&stored_hashes);
-                        let mut hasher = Hasher::new(HashConfig {
-                            crc32: true,
-                            sha256: true,
-                            ..Default::default()
-                        });
-                        if let Ok((_, hashes)) = hasher.hash_file(&path) {
-                            let (current_crc32, current_sha256) = extract_current_hashes(&hashes);
-                            if validate_hashes(
-                                found_crc32,
-                                found_sha256,
-                                &current_crc32,
-                                &current_sha256,
-                                &stored_crc32,
-                                &stored_sha256,
-                            )
-                            .is_some()
-                            {
-                                mismatch_count += 1;
-                            }
-                        }
-                    }
+                } else if has_mismatch {
+                    mismatch_count += 1;
                 }
             }
             Err(e) => {

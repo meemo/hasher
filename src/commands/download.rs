@@ -74,7 +74,11 @@ fn build_download_config(args: &HasherDownloadArgs) -> DownloadConfig {
     }
 }
 
-fn build_result_json(result: &DownloadResult, hash_info: Option<serde_json::Map<String, serde_json::Value>>, pretty: bool) -> String {
+fn build_result_json(
+    result: &DownloadResult,
+    hash_info: Option<serde_json::Map<String, serde_json::Value>>,
+    pretty: bool,
+) -> String {
     let result_type = match (&result.success, &result.error) {
         (true, Some(e)) if e == "File exists, skipping download" => "download_skipped",
         (true, _) => "download_success",
@@ -91,7 +95,8 @@ fn build_result_json(result: &DownloadResult, hash_info: Option<serde_json::Map<
     // Add hash information if available
     if let Some(hash_map) = hash_info {
         for (key, value) in hash_map {
-            if key != "file_path" && key != "file_size" {  // Skip redundant fields
+            if key != "file_path" && key != "file_size" {
+                // Skip redundant fields
                 json_map.insert(key, value);
             }
         }
@@ -149,11 +154,7 @@ async fn process_download_result(
                 Err(_) if !args.hash_options.fail_fast => {
                     println!(
                         "{}",
-                        build_result_json(
-                            &result,
-                            None,
-                            args.hash_options.pretty_json,
-                        )
+                        build_result_json(&result, None, args.hash_options.pretty_json,)
                     );
                     Ok(true)
                 }

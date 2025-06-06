@@ -305,7 +305,9 @@ pub fn get_config(path: &Path, db_path_override: Option<&Path>) -> Result<Config
 // Apply config file options to command-line options, respecting command-line precedence
 pub fn apply_config_defaults(options: &mut HasherOptions, config: &Config) {
     // If no options section in config, nothing to do
-    let Some(cfg_opts) = &config.options else { return };
+    let Some(cfg_opts) = &config.options else {
+        return;
+    };
 
     // Helper macro to apply boolean options (only set true if not already set)
     macro_rules! apply_bool_option {
@@ -353,7 +355,8 @@ pub fn apply_config_defaults(options: &mut HasherOptions, config: &Config) {
 
     // Special handling for compression_level to ensure it's clamped
     if let Some(level) = cfg_opts.compression_level {
-        if options.compression_level == 6 { // default value
+        if options.compression_level == 6 {
+            // default value
             options.compression_level = level.clamp(1, 9);
         }
     }

@@ -114,7 +114,7 @@ fn file_existing(
     if !args.skip_existing {
         return Ok(false);
     }
-    
+
     if !dest.exists() {
         return Ok(false);
     }
@@ -138,11 +138,15 @@ fn file_existing(
 
     // Ensure source file exists before trying to read it
     if !source.exists() {
-        return Err(Error::Config(format!("Source file does not exist: {}", source.display())));
+        return Err(Error::Config(format!(
+            "Source file does not exist: {}",
+            source.display()
+        )));
     }
 
-    let source_data = if (source_compressed && args.hash_options.decompress) || 
-                     (source_compressed && args.hash_options.hash_uncompressed) {
+    let source_data = if (source_compressed && args.hash_options.decompress)
+        || (source_compressed && args.hash_options.hash_uncompressed)
+    {
         let compressed = std::fs::read(source)?;
         compression::decompress_bytes(&compressed, compression::CompressionType::Gzip)?
     } else if !source_compressed && args.hash_options.hash_compressed {
@@ -159,12 +163,16 @@ fn file_existing(
 
     // Double-check destination exists before trying to read it
     if !dest.exists() {
-        debug!("Destination file disappeared after initial check: {}", dest.display());
+        debug!(
+            "Destination file disappeared after initial check: {}",
+            dest.display()
+        );
         return Ok(false);
     }
 
-    let dest_data = if (dest_compressed && args.hash_options.decompress) ||
-                     (dest_compressed && args.hash_options.hash_uncompressed) {
+    let dest_data = if (dest_compressed && args.hash_options.decompress)
+        || (dest_compressed && args.hash_options.hash_uncompressed)
+    {
         let compressed = std::fs::read(dest)?;
         compression::decompress_bytes(&compressed, compression::CompressionType::Gzip)?
     } else if !dest_compressed && args.hash_options.hash_compressed {
@@ -308,7 +316,7 @@ fn get_final_dest(dest: &Path, args: &HasherCopyArgs) -> PathBuf {
         compression::CompressionType::Gzip,
         args.hash_options.compression_level,
     );
-    
+
     if args.hash_options.compress {
         // Don't append .gz if the file is already compressed
         if !compressor.is_compressed_path(dest) {
@@ -405,7 +413,8 @@ async fn hash_file_based_on_options(
                     } else {
                         final_dest
                     };
-                    process_hash_results(path_to_store, data.len(), &hashes, args, config, db_conn).await?;
+                    process_hash_results(path_to_store, data.len(), &hashes, args, config, db_conn)
+                        .await?;
                 }
                 Err(e) => {
                     if !args.hash_options.fail_fast {

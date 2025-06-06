@@ -75,13 +75,13 @@ pub async fn init_database(db_string: &str, table_name: &str, use_wal: bool) -> 
         .create_if_missing(true);
     let mut db_conn = SqliteConnection::connect_with(&connection_options)
         .await
-        .expect("Failed to connect to db!");
+        .map_err(|e| Error::Database(format!("Failed to connect to database: {}", e)))?;
 
     if use_wal {
         sqlx::query("PRAGMA journal_mode=WAL")
             .execute(&mut db_conn)
             .await
-            .expect("Failed to enable WAL mode!");
+            .map_err(|e| Error::Database(format!("Failed to enable WAL mode: {}", e)))?;
         info!("Enabled WAL for database.");
     }
 
@@ -93,7 +93,7 @@ pub async fn init_database(db_string: &str, table_name: &str, use_wal: bool) -> 
     query
         .execute(&mut db_conn)
         .await
-        .expect("Failed to create table!");
+        .map_err(|e| Error::Database(format!("Failed to create table: {}", e)))?;
 
     info!("Wrote table with name {} to database.", table_name);
 

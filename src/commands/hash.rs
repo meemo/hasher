@@ -5,7 +5,10 @@ use crate::configuration::{Config, HasherHashArgs};
 use crate::output;
 use crate::utils::Error;
 
-pub async fn execute(args: HasherHashArgs, config: &Config) -> Result<Option<serde_json::Map<String, serde_json::Value>>, Error> {
+pub async fn execute(
+    args: HasherHashArgs,
+    config: &Config,
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, Error> {
     let input_path = args.source.unwrap_or_else(|| PathBuf::from("."));
 
     if args.hash_options.stdin {

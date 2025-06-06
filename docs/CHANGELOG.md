@@ -1,5 +1,14 @@
 # Changelog/Version History
 
+## 0.8.18: Code quality improvements and bug fixes
+
+- Fixed major performance issue in verify command where files were being hashed twice unnecessarily
+- Removed duplicate database insertion code in output.rs, now using the centralized insert_single_hash function
+- Improved error handling in database initialization by replacing panic-prone expect() calls with proper error propagation
+- Applied rustfmt formatting to entire codebase for consistent code style
+- Enhanced maintainability by reducing code duplication and improving function organization
+- These improvements ensure better performance and reliability when processing large datasets
+
 ## 0.8.17: Bug fixes: critical copy and decompression fixes
 
 - Fixed critical bug where "hash match" skip was incorrectly triggered for non-existent destination files

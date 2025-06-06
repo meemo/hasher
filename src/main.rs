@@ -54,21 +54,21 @@ async fn main() {
             exit(1);
         }
     };
-    
+
     // Apply config defaults to command line options (mutable version needed)
     match &mut args.command {
         HasherCommand::Hash(args) => {
             configuration::apply_config_defaults(&mut args.hash_options, &config);
-        },
+        }
         HasherCommand::Copy(args) => {
             configuration::apply_config_defaults(&mut args.hash_options, &config);
-        },
+        }
         HasherCommand::Verify(args) => {
             configuration::apply_config_defaults(&mut args.hash_options, &config);
-        },
+        }
         HasherCommand::Download(args) => {
             configuration::apply_config_defaults(&mut args.hash_options, &config);
-        },
+        }
     };
 
     // Initialize database for commands that need it
@@ -139,7 +139,9 @@ async fn main() {
         HasherCommand::Hash(args) => commands::hash::execute(args, &config).await.map(|_| ()),
         HasherCommand::Copy(args) => commands::copy::execute(args, &config).await,
         HasherCommand::Verify(args) => commands::verify::execute(args, &config).await,
-        HasherCommand::Download(args) => commands::download::execute(args, &config).await.map(|_| ()),
+        HasherCommand::Download(args) => {
+            commands::download::execute(args, &config).await.map(|_| ())
+        }
     };
 
     if let Err(e) = result {
